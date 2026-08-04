@@ -1,0 +1,16 @@
+go 1.26.0
+
+use (
+	.
+	./all
+	./bench
+	./extension/gfm
+	./extension/hashtag
+	./extension/math
+	./extension/memos
+	./extension/rawhtml
+	./extension/resource
+	./extension/strikethrough
+	./extension/table
+	./extension/typography
+)

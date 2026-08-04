@@ -1,0 +1,48 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - unparam
+    - misspell
+    - ineffassign
+    - govet
+    - unused
+  settings:
+    errcheck:
+      # A renderer.Writer is always a *strings.Builder or *bufio.Writer: neither
+      # fails mid-write, and any deferred bufio error surfaces at Flush, which the
+      # facade does check. Checking every tag write would bury the layer in noise.
+      exclude-functions:
+        - (github.com/Wenrh2004/mdflow/renderer.Writer).Write
+        - (github.com/Wenrh2004/mdflow/renderer.Writer).WriteString
+        - (github.com/Wenrh2004/mdflow/renderer.Writer).WriteByte
+        - (io.Writer).Write
+        - (io.StringWriter).WriteString
+        - (io.ByteWriter).WriteByte
+    misspell:
+      # This codebase is written in British English throughout ("recognised",
+      # "flavoured", "popularised"). Lint against that locale so the convention is
+      # enforced rather than fought.
+      locale: UK
+      # "center" is HTML markup (align="center"), not prose.
+      ignore-rules:
+        - center
+    staticcheck:
+      # QF* are opinionated quick-fix refactors (De Morgan, tagged switch), not
+      # correctness checks; the code reads deliberately as written.
+      checks:
+        - all
+        - -QF1001
+        - -QF1002
+        - -QF1003
+        - -QF1006
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

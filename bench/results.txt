@@ -1,0 +1,44 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/Wenrh2004/mdflow/bench
+cpu: Apple M4 Pro
+BenchmarkMarkdownToHTML/small/mdflow-14         	   36316	     32199 ns/op	 104.19 MB/s	   55902 B/op	     213 allocs/op
+BenchmarkMarkdownToHTML/small/gomark-14         	    1369	    881160 ns/op	   3.81 MB/s	 2355359 B/op	   24068 allocs/op
+BenchmarkMarkdownToHTML/medium/mdflow-14        	    3654	    324445 ns/op	 104.52 MB/s	  566954 B/op	    2104 allocs/op
+BenchmarkMarkdownToHTML/medium/gomark-14        	      14	  78580402 ns/op	   0.43 MB/s	199881358 B/op	 1772717 allocs/op
+BenchmarkMarkdownToHTML/large/mdflow-14         	     355	   3363970 ns/op	 102.11 MB/s	 5524910 B/op	   21027 allocs/op
+BenchmarkMarkdownToHTML/large/gomark-14         	       1	6569119667 ns/op	   0.05 MB/s	21077968112 B/op	170772639 allocs/op
+BenchmarkRenderToWriter/mdflow-14               	    3654	    323641 ns/op	 104.78 MB/s	  439982 B/op	    2103 allocs/op
+BenchmarkRenderToWriter/gomark-14               	      14	  82826750 ns/op	   0.41 MB/s	199881305 B/op	 1772717 allocs/op
+BenchmarkParseOnly/mdflow-14                    	   16165	     73929 ns/op	 458.68 MB/s	   10507 B/op	     250 allocs/op
+BenchmarkParseOnly/gomark-14                    	      14	  83297780 ns/op	   0.41 MB/s	199686841 B/op	 1772449 allocs/op
+BenchmarkStreaming/small/mdflow-incremental-14  	   30618	     39238 ns/op	  85.50 MB/s	   70301 B/op	     517 allocs/op
+BenchmarkStreaming/small/gomark-reparse-14      	      57	  19875855 ns/op	   0.17 MB/s	45586870 B/op	  489167 allocs/op
+BenchmarkStreaming/small/mdflow-reparse-14      	    1327	    896673 ns/op	   3.74 MB/s	 1549975 B/op	    5737 allocs/op
+BenchmarkStreaming/medium/mdflow-incremental-14 	    3090	    389016 ns/op	  87.17 MB/s	  666165 B/op	    5035 allocs/op
+BenchmarkStreaming/medium/mdflow-reparse-14     	      13	  87258654 ns/op	   0.39 MB/s	146732534 B/op	  559597 allocs/op
+BenchmarkTextExtract/mdflow-14                  	    3804	    322814 ns/op	 105.04 MB/s	  476808 B/op	    2106 allocs/op
+BenchmarkTextExtract/gomark-14                  	      13	  87891705 ns/op	   0.39 MB/s	199998356 B/op	 1778118 allocs/op
+BenchmarkProse/mdflow-14                        	   15422	     76500 ns/op	 615.56 MB/s	  105824 B/op	     402 allocs/op
+BenchmarkProse/gomark-14                        	      13	  88772080 ns/op	   0.53 MB/s	226328862 B/op	 1047156 allocs/op
+BenchmarkParallel/mdflow-14                     	    5737	    213636 ns/op	 158.73 MB/s	  569658 B/op	    2113 allocs/op
+BenchmarkParallel/gomark-14                     	      30	  41934662 ns/op	   0.81 MB/s	199881189 B/op	 1772723 allocs/op
+BenchmarkSequentialVsParallel/8KiB/sequential-14         	   10000	    111280 ns/op	  96.96 MB/s	  177660 B/op	     675 allocs/op
+BenchmarkSequentialVsParallel/8KiB/parallel-14           	   10000	    116274 ns/op	  92.80 MB/s	  210938 B/op	     733 allocs/op
+BenchmarkSequentialVsParallel/32KiB/sequential-14        	    2655	    447612 ns/op	  97.03 MB/s	  713864 B/op	    2693 allocs/op
+BenchmarkSequentialVsParallel/32KiB/parallel-14          	    2808	    434675 ns/op	  99.91 MB/s	  924772 B/op	    2804 allocs/op
+BenchmarkSequentialVsParallel/128KiB/sequential-14       	     637	   1863786 ns/op	  94.11 MB/s	 2848563 B/op	   10769 allocs/op
+BenchmarkSequentialVsParallel/128KiB/parallel-14         	    1012	   1165858 ns/op	 150.44 MB/s	 3476110 B/op	   10863 allocs/op
+BenchmarkSequentialVsParallel/512KiB/sequential-14       	     172	   6976497 ns/op	 101.02 MB/s	11319610 B/op	   43037 allocs/op
+BenchmarkSequentialVsParallel/512KiB/parallel-14         	     375	   3166161 ns/op	 222.59 MB/s	14049204 B/op	   43106 allocs/op
+BenchmarkSequentialVsParallel/2MiB/sequential-14         	      43	  26209585 ns/op	 108.70 MB/s	45309009 B/op	  172063 allocs/op
+BenchmarkSequentialVsParallel/2MiB/parallel-14           	     108	  10943597 ns/op	 260.34 MB/s	60723339 B/op	  172155 allocs/op
+BenchmarkWorkerScaling/workers=1-14                      	     171	   6937405 ns/op	 101.59 MB/s	11321017 B/op	   43040 allocs/op
+BenchmarkWorkerScaling/workers=2-14                      	     252	   4736243 ns/op	 148.80 MB/s	15199462 B/op	   43046 allocs/op
+BenchmarkWorkerScaling/workers=4-14                      	     318	   3662590 ns/op	 192.42 MB/s	14509780 B/op	   43067 allocs/op
+BenchmarkWorkerScaling/workers=8-14                      	     348	   3497866 ns/op	 201.48 MB/s	15858704 B/op	   43115 allocs/op
+BenchmarkWorkerScaling/workers=14-14                     	     369	   3231258 ns/op	 218.11 MB/s	14104473 B/op	   43106 allocs/op
+BenchmarkParallelUnderLoad/sequential-14                 	    2164	    534203 ns/op	 328.33 MB/s	 2845124 B/op	   10768 allocs/op
+BenchmarkParallelUnderLoad/parallel-14                   	    3006	    380685 ns/op	 460.73 MB/s	 3573650 B/op	   10822 allocs/op
+PASS
+ok  	github.com/Wenrh2004/mdflow/bench	59.193s

@@ -1,0 +1,210 @@
+package mdflow
+
+import (
+	"bufio"
+	"context"
+	"io"
+	"iter"
+	"strings"
+	"sync"
+
+	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/renderer"
+	"github.com/Wenrh2004/mdflow/token"
+)
+
+// The context-aware twins of the terminal operations, for the one caller a
+// streaming Markdown library exists to serve: an LLM feeding tokens into a
+// render loop that a user can cancel. A plain parse of a small document is over
+// in microseconds and needs none of this; a parse of a large or slowly arriving
+// one wants a way out that does not involve tearing down the goroutine.
+//
+// Cancellation is cooperative and coarse-grained on purpose. Checking
+// ctx.Err() per line would put an atomic load on the hottest loop in the
+// library to serve a case that only matters across many thousands of lines, so
+// the line-driven paths check once every ctxCheckLines lines and the fan-out
+// path checks at its partition boundaries. A cancelled parse stops promptly
+// relative to a human's patience, which is the only clock that matters here.
+//
+// A cancelled operation returns whatever it had rendered so far together with
+// ctx.Err(): the string and Render twins may have already written a prefix, and
+// reporting the prefix rather than discarding it is what lets a UI keep the
+// partial document it was showing.
+
+// ctxCheckLines is how often the line-driven paths consult ctx.Err(). It is a
+// power of two so the check is a mask, and large enough that the check is lost
+// in the noise of the work between two consultations.
+const ctxCheckLines = 1 << 10
+
+// HTMLContext is [Parser.HTML] with cancellation. On cancellation it returns
+// the HTML rendered up to that point together with ctx.Err().
+func (p *Parser) HTMLContext(ctx context.Context, src string) (string, error) {
+	var b strings.Builder
+	b.Grow(len(src) + len(src)/2)
+	err := p.renderToContext(ctx, &b, src)
+	return b.String(), err
+}
+
+// RenderContext is [Parser.Render] with cancellation.
+func (p *Parser) RenderContext(ctx context.Context, w io.Writer, src string) error {
+	if bw, ok := w.(renderer.Writer); ok {
+		return p.renderToContext(ctx, bw, src)
+	}
+	bw := bufio.NewWriter(w)
+	if err := p.renderToContext(ctx, bw, src); err != nil {
+		return err
+	}
+	return bw.Flush()
+}
+
+// TextContext is [Parser.Text] with cancellation.
+func (p *Parser) TextContext(ctx context.Context, src string) (string, error) {
+	out := collectText(p.EventsContext(ctx, src))
+	return out, ctx.Err()
+}
+
+// HeadingsContext is [Parser.Headings] with cancellation.
+func (p *Parser) HeadingsContext(ctx context.Context, src string) ([]Heading, error) {
+	out := collectHeadings(p.EventsContext(ctx, src))
+	return out, ctx.Err()
+}
+
+// EventsContext is [Parser.Events] with cancellation: once ctx is done the
+// sequence stops yielding, so a range over it ends cooperatively. It carries no
+// error itself — a consumer that needs the reason reads ctx.Err() after the
+// range, the way TextContext and HeadingsContext do.
+func (p *Parser) EventsContext(ctx context.Context, src string) iter.Seq[Event] {
+	raw := p.rawEventsContext(ctx, src)
+	if p.chain == nil {
+		return raw
+	}
+	return p.chain(raw)
+}
+
+// renderToContext is [Parser.renderTo] with cancellation, mirroring its three
+// paths so the context spelling makes the same fast/slow choices.
+func (p *Parser) renderToContext(ctx context.Context, w renderer.Writer, src string) error {
+	switch {
+	case p.parallelEligible(src):
+		return p.renderParallelContext(ctx, w, src)
+	case p.chain == nil:
+		return p.renderDirectContext(ctx, w, src)
+	default:
+		p.renderEvents(w, p.EventsContext(ctx, src))
+		return ctx.Err()
+	}
+}
+
+// renderDirectContext is [Parser.renderDirect] with a periodic cancellation
+// check on the line loop.
+func (p *Parser) renderDirectContext(ctx context.Context, w renderer.Writer, src string) error {
+	bp := p.borrow()
+	defer p.release(bp)
+	render := func(events []token.BlockEvent) {
+		for i := range events {
+			p.writeEvent(w, events[i])
+		}
+	}
+	var (
+		n    int
+		cerr error
+	)
+	parser.EachLine(src, func(line string) bool {
+		if n&(ctxCheckLines-1) == 0 {
+			if err := ctx.Err(); err != nil {
+				cerr = err
+				return false
+			}
+		}
+		n++
+		render(bp.FeedLine(line))
+		return true
+	})
+	if cerr != nil {
+		return cerr
+	}
+	render(bp.CloseAll())
+	return ctx.Err()
+}
+
+// rawEventsContext is [Parser.rawEvents] that stops feeding lines once ctx is
+// done, so the sequence it drives ends cooperatively.
+func (p *Parser) rawEventsContext(ctx context.Context, src string) iter.Seq[Event] {
+	return func(yield func(Event) bool) {
+		bp := p.borrow()
+		defer p.release(bp)
+		ok := true
+		n := 0
+		parser.EachLine(src, func(line string) bool {
+			if n&(ctxCheckLines-1) == 0 && ctx.Err() != nil {
+				ok = false
+				return false
+			}
+			n++
+			ok = p.emitBlockEvents(bp.FeedLine(line), yield)
+			return ok
+		})
+		if ok {
+			p.emitBlockEvents(bp.CloseAll(), yield)
+		}
+	}
+}
+
+// renderParallelContext is [Parser.renderParallel] with cancellation checks at
+// the two points fan-out can bail cheaply: before dispatch, and at each
+// worker's partition boundary. A cancel mid-flight abandons the per-worker
+// buffers rather than concatenating a half-rendered document.
+//
+// It is a deliberate near-copy of renderParallel: that path is measured to the
+// byte (see its doc comment), so the context spelling gets its own body rather
+// than folding a ctx check into the hot one.
+func (p *Parser) renderParallelContext(ctx context.Context, w renderer.Writer, src string) error {
+	bp := p.borrow()
+	defer p.release(bp)
+
+	events := bp.CollectAll(src)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	n := min(p.workers, len(events))
+	if n <= 1 {
+		for i := range events {
+			p.writeEvent(w, events[i])
+		}
+		return ctx.Err()
+	}
+
+	bufs := make([]strings.Builder, n)
+	per := (len(events) + n - 1) / n
+	reserve := len(src)/n + len(src)/(2*n) + 64
+
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		lo := i * per
+		if lo >= len(events) {
+			break
+		}
+		hi := min(lo+per, len(events))
+		wg.Add(1)
+		go func(i, lo, hi int) {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				return // a cancel between dispatch and start: skip the work
+			}
+			b := &bufs[i]
+			b.Grow(reserve)
+			for j := lo; j < hi; j++ {
+				p.writeEvent(b, events[j])
+			}
+		}(i, lo, hi)
+	}
+	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for i := range bufs {
+		w.WriteString(bufs[i].String())
+	}
+	return nil
+}

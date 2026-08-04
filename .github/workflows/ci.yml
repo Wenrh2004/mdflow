@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Discover every module in the repo so the build/test/lint jobs fan out over
+  # them as a matrix. Adding an extension module needs no change here.
+  modules:
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.list.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          dirs=$(find . -name go.mod -not -path '*/.*' -exec dirname {} \; | sort | sed 's|^\./||' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: modules
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.modules.outputs.dirs) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: build & vet
+        working-directory: ${{ matrix.module }}
+        run: |
+          go build ./...
+          go vet ./...
+      - name: test (race + cover)
+        working-directory: ${{ matrix.module }}
+        run: go test -race -cover ./...
+
+  lint:
+    needs: modules
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.modules.outputs.dirs) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.10.1
+          working-directory: ${{ matrix.module }}
+
+  # The core module owns no extension dependency: it must parse a plain document
+  # with no import of an extension submodule or the umbrella. The base
+  # extension package (mdflow/extension, holding Extension/Capability/Set) lives
+  # in the core module itself and is allowed; only mdflow/extension/<name> and
+  # mdflow/all are forbidden. Assert that in CI so a stray import cannot creep in.
+  core-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: core has zero extension dependencies
+        run: |
+          if go list -deps ./... 2>/dev/null | grep -E 'mdflow/(extension/|all($|/))'; then
+            echo "core module imports an extension submodule or the umbrella" >&2
+            exit 1
+          fi
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: fuzz (short budget)
+        run: |
+          for t in $(go test -list '^Fuzz' ./... | grep '^Fuzz'); do
+            echo "== $t =="
+            go test -run '^$' -fuzz "^$t$" -fuzztime=20s .
+          done

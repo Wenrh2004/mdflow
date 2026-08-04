@@ -1,0 +1,7 @@
+# test binaries produced by `go test -c`
+*.test
+# coverage output
+*.out
+.DS_Store
+# go workspace sum (local dev only)
+go.work.sum
