@@ -14,8 +14,9 @@ import (
 // CommonMark's appendix A splits parsing into two phases, and says something
 // useful about their dependencies: block structure is strictly sequential (a
 // line's meaning depends on the container stack above it), while inline parsing
-// of a closed leaf depends on nothing outside that leaf. So phase two is
-// embarrassingly parallel, and phase one is not.
+// after reference definitions are sealed depends only on the leaf and that
+// immutable resolver. So phase two is embarrassingly parallel, and phase one is
+// not.
 //
 // Granularity is the whole game. Handing each block to a worker — one goroutine
 // hop per block — costs more in scheduler traffic than a block's few
@@ -109,10 +110,11 @@ func (p *Parser) renderParallel(w renderer.Writer, src string) {
 	defer p.release(bp)
 
 	events := bp.CollectAll(src)
+	bp.SealReferences()
 	n := min(p.workers, len(events))
 	if n <= 1 {
 		for i := range events {
-			p.writeEvent(w, events[i])
+			p.writeFinalEvent(w, bp, events[i])
 		}
 		return
 	}
@@ -136,7 +138,7 @@ func (p *Parser) renderParallel(w renderer.Writer, src string) {
 			b := &bufs[i]
 			b.Grow(reserve)
 			for j := lo; j < hi; j++ {
-				p.writeEvent(b, events[j])
+				p.writeFinalEvent(b, bp, events[j])
 			}
 		}(i, lo, hi)
 	}

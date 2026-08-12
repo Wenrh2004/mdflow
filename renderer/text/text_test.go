@@ -17,7 +17,7 @@ func TestRendersPlainText(t *testing.T) {
 	cases := map[string]string{
 		"# Title\n\nA *para* with `code`.\n":            "Title\n\nA para with code.\n\n",
 		"- one\n- two\n":                                "- one\n- two\n\n",
-		"- [ ] todo\n- [x] done\n":                      "[ ] todo\n[x] done\n\n",
+		"- [ ] todo\n- [x] done\n":                      "- [ ] todo\n- [x] done\n\n",
 		"> quoted\n":                                    "quoted\n\n",
 		"```go\nx := 1\n```\n":                          "x := 1\n\n",
 		"para one\n\npara two\n":                        "para one\n\npara two\n\n",

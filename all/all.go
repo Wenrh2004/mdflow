@@ -1,10 +1,9 @@
-// Package all bundles every mdflow extension and offers a parser preconfigured
-// with the full syntax set.
+// Package all bundles the GFM and Memos extensions with mdflow's complete
+// CommonMark profile.
 //
-// It exists so the common "I want everything" case is one import, while the core
-// module stays CommonMark-only and a binary that names a smaller bundle links
-// nothing more. [New] reproduces what mdflow.New once defaulted to, byte for
-// byte.
+// It exists so the common "I want every bundled flavour" case is one import.
+// [New] preserves mdflow.New's safe raw-HTML policy while adding all bundled GFM
+// and Memos syntax.
 package all
 
 import (
@@ -15,16 +14,21 @@ import (
 	"github.com/Wenrh2004/mdflow/extension/rawhtml"
 )
 
-// All enables every bundled capability: GFM (tables, strikethrough), Memos
-// (math, hashtags, typography, resources) and raw HTML.
+// All is the explicit capability set used by [New]: safe CommonMark raw HTML,
+// GFM (tables, strikethrough, task lists), and Memos (math, hashtags,
+// typography, resources).
 //
 // The order is load-bearing — strikethrough must precede typography's subscript
 // on the shared `~` trigger, and the raw-HTML rule must follow the core autolink
-// on `<` — so it matches the original mdflow default exactly.
+// on `<`.
 var All = extension.Set{gfm.GFM, memos.Memos, rawhtml.RawHTML}
 
-// New builds a parser with the CommonMark core plus every bundled extension. It
-// is the full-syntax counterpart to mdflow.New, which is now CommonMark-only.
+// New builds a complete CommonMark 0.31.2 parser plus every bundled GFM and
+// Memos extension. Raw HTML remains escaped unless rawhtml.WithUnsafeHTML is
+// supplied explicitly for trusted input.
 func New(opts ...mdflow.Option) *mdflow.Parser {
-	return mdflow.New(append([]mdflow.Option{mdflow.WithExtensions(All)}, opts...)...)
+	// Replace mdflow.New's safe raw-HTML default instead of adding All on top of
+	// it: All already contains RawHTML, and registering the same syntax twice
+	// would duplicate every `<` probe and block continuation.
+	return mdflow.New(append([]mdflow.Option{mdflow.WithOnly(All)}, opts...)...)
 }

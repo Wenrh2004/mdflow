@@ -49,11 +49,22 @@ func (p *Parser) renderTo(w renderer.Writer, src string) {
 	}
 }
 
-// writeEvent is the one place block events become markup: parse the leaf's
-// inline content, hand both to the renderer.
-func (p *Parser) writeEvent(w renderer.Writer, ev token.BlockEvent) {
+// writeDocumentEvent is the one place completed document events become markup.
+// The document driver has already resolved the leaf's inline phase.
+func (p *Parser) writeDocumentEvent(w renderer.Writer, ev token.BlockEvent, inlines []token.Inline) {
 	if ev.Type == token.LeafBlock {
-		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, p.cfg.Rules.ParseInline(ev.Leaf))
+		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, inlines)
+	} else {
+		p.cfg.Renderer.RenderContainer(w, ev)
+	}
+}
+
+// writeFinalEvent is the sealed-resolver spelling used by parallel workers.
+// No cursor can escape ParseInlineFinal, so workers share BlockState only for
+// immutable reference lookup.
+func (p *Parser) writeFinalEvent(w renderer.Writer, blocks *parser.BlockState, ev token.BlockEvent) {
+	if ev.Type == token.LeafBlock {
+		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, blocks.ParseInlineFinal(ev.Leaf))
 	} else {
 		p.cfg.Renderer.RenderContainer(w, ev)
 	}
@@ -62,16 +73,16 @@ func (p *Parser) writeEvent(w renderer.Writer, ev token.BlockEvent) {
 func (p *Parser) renderDirect(w renderer.Writer, src string) {
 	bp := p.borrow()
 	defer p.release(bp)
-	render := func(events []token.BlockEvent) {
-		for i := range events {
-			p.writeEvent(w, events[i])
-		}
+	driver := documentDriver{blocks: bp}
+	defer driver.Release()
+	render := func(ev token.BlockEvent, inlines []token.Inline) bool {
+		p.writeDocumentEvent(w, ev, inlines)
+		return true
 	}
 	parser.EachLine(src, func(line string) bool {
-		render(bp.FeedLine(line))
-		return true
+		return driver.FeedLine(line, render)
 	})
-	render(bp.CloseAll())
+	driver.Close(render)
 }
 
 // renderEvents reconstructs leaves from a (possibly transformed) event stream
@@ -106,24 +117,23 @@ func (p *Parser) renderEvents(w renderer.Writer, seq iter.Seq[Event]) {
 		switch {
 		case e.Type == EnterEvent && IsLeafNode(e.Node):
 			leaf = token.Leaf{
-				Node: e.Node, Tag: e.Tag, Level: e.Level, Info: e.Info, Content: e.Text,
-				Literal: e.Literal, Tight: e.Tight, Align: e.Align, Header: e.Header,
-			}
-			if e.Node == token.ThematicBreak {
-				p.cfg.Renderer.RenderLeaf(w, leaf, nil)
-				continue
+				Node: e.Node, Tag: e.Tag, Level: e.Level, Info: e.Info, Content: e.Content,
+				Literal: e.Literal, Tight: e.Tight, BreakAfter: e.BreakAfter,
+				Align: e.Align, Header: e.Header, Context: e.Context,
 			}
 			inLeaf = true
 			codeBody.Reset()
 		case e.Type == EnterEvent:
 			p.cfg.Renderer.RenderContainer(w, token.BlockEvent{
-				Type: token.OpenBlock, Container: e.Node, Tag: e.Tag,
-				Ordered: e.Ordered, Start: e.Start, Task: e.Task,
+				Type: token.OpenBlock, Container: e.Node, Tag: e.Tag, Seq: e.Seq,
+				Ordered: e.Ordered, Start: e.Start, Tight: e.Tight,
+				Newline: e.Newline, Align: e.Align,
 			})
 		case e.Type == LeaveEvent:
 			p.cfg.Renderer.RenderContainer(w, token.BlockEvent{
-				Type: token.CloseBlock, Container: e.Node, Tag: e.Tag,
-				Ordered: e.Ordered, Start: e.Start, Task: e.Task,
+				Type: token.CloseBlock, Container: e.Node, Tag: e.Tag, Seq: e.Seq,
+				Ordered: e.Ordered, Start: e.Start, Tight: e.Tight,
+				Newline: e.Newline, Align: e.Align,
 			})
 		}
 	}

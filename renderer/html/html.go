@@ -12,13 +12,11 @@
 //     and new node types registered via RegisterCustom, so an extension can
 //     define both new syntax and its output without forking this package.
 //
-// Escaping uses the standard library's html.EscapeString: correctness is
-// vouched for by the Go team, and it returns its input unchanged (zero
-// allocation) when nothing needs escaping, which is the common case for prose.
+// Escaping is streamed directly to the destination. CommonMark's HTML output
+// escapes &, <, > and ", while leaving apostrophes untouched.
 package html
 
 import (
-	"html"
 	"maps"
 	"slices"
 	"strconv"
@@ -39,6 +37,11 @@ type Renderer struct {
 	customCont []renderer.ContainerRenderFunc
 	// XHTML controls whether void elements are closed as `<br />` or `<br>`.
 	XHTML bool
+	// SafeLinks filters link and image destinations to an allowlist of URI
+	// schemes, rendering an empty destination for anything else (javascript:,
+	// data:, vbscript:, …). It is off by default so the profile stays
+	// byte-for-byte CommonMark; mdflow.WithSafeLinks turns it on.
+	SafeLinks bool
 }
 
 // NewRenderer builds the default HTML renderer.
@@ -57,6 +60,7 @@ var (
 	_ renderer.CustomLeafRegistrar      = (*Renderer)(nil)
 	_ renderer.CustomContainerRegistrar = (*Renderer)(nil)
 	_ renderer.NodeOverrider            = (*Renderer)(nil)
+	_ renderer.VoidElementCloser        = (*Renderer)(nil)
 )
 
 // OverrideNode replaces how a built-in inline node type renders (e.g. adding
@@ -83,6 +87,15 @@ func (h *Renderer) RegisterCustomContainer(tag token.Tag, fn renderer.ContainerR
 	h.customCont = put(h.customCont, tag, fn)
 }
 
+// CloseVoidElement implements [renderer.VoidElementCloser].
+func (h *Renderer) CloseVoidElement(w renderer.Writer) {
+	if h.XHTML {
+		w.WriteString(" />")
+	} else {
+		w.WriteByte('>')
+	}
+}
+
 // put stores v at tag, growing s as needed. Registration happens once at
 // construction, so the reallocation is not on any hot path.
 func put[T any](s []T, tag token.Tag, v T) []T {
@@ -104,6 +117,7 @@ func (h *Renderer) Clone() renderer.Renderer {
 		customLeaf: slices.Clone(h.customLeaf),
 		customCont: slices.Clone(h.customCont),
 		XHTML:      h.XHTML,
+		SafeLinks:  h.SafeLinks,
 	}
 	maps.Copy(out.overrides, h.overrides)
 	return out
@@ -120,6 +134,9 @@ func (h *Renderer) RenderLeaf(w renderer.Writer, leaf token.Leaf, inlines []toke
 	case token.Paragraph:
 		if leaf.Tight {
 			h.RenderInlines(w, inlines) // tight list item: no <p> wrapper
+			if leaf.BreakAfter {
+				w.WriteByte('\n')
+			}
 			return
 		}
 		w.WriteString("<p>")
@@ -136,11 +153,9 @@ func (h *Renderer) RenderLeaf(w renderer.Writer, leaf token.Leaf, inlines []toke
 		writeEscaped(w, leaf.Content)
 		w.WriteString("</code></pre>\n")
 	case token.ThematicBreak:
-		if h.XHTML {
-			w.WriteString("<hr />\n")
-		} else {
-			w.WriteString("<hr>\n")
-		}
+		w.WriteString("<hr")
+		h.CloseVoidElement(w)
+		w.WriteByte('\n')
 	case token.CustomLeaf:
 		if int(leaf.Tag) < len(h.customLeaf) {
 			if fn := h.customLeaf[leaf.Tag]; fn != nil {
@@ -195,17 +210,9 @@ func (h *Renderer) RenderContainer(w renderer.Writer, ev token.BlockEvent) {
 			w.WriteString("</li>\n")
 			return
 		}
-		switch ev.Task {
-		case 1:
-			w.WriteString(`<li><input type="checkbox" disabled`)
-			w.WriteString(pick(h.XHTML, " />", ">"))
-			w.WriteByte(' ')
-		case 2:
-			w.WriteString(`<li><input type="checkbox" checked disabled`)
-			w.WriteString(pick(h.XHTML, " />", ">"))
-			w.WriteByte(' ')
-		default:
-			w.WriteString("<li>")
+		w.WriteString("<li>")
+		if ev.Newline {
+			w.WriteByte('\n')
 		}
 	case token.CustomContainer:
 		// No fallback: a container contributes structure, not content, so an
@@ -237,8 +244,12 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 			w.WriteString("<code>")
 			writeEscaped(w, t.Text)
 			w.WriteString("</code>")
+		case token.SoftBreak:
+			w.WriteByte('\n')
 		case token.HardBreak:
-			w.WriteString(pick(h.XHTML, "<br />\n", "<br>\n"))
+			w.WriteString("<br")
+			h.CloseVoidElement(w)
+			w.WriteByte('\n')
 		case token.Emph:
 			w.WriteString(pick(!t.Close, "<em>", "</em>"))
 		case token.Strong:
@@ -249,7 +260,9 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 				break
 			}
 			w.WriteString(`<a href="`)
-			writeEscaped(w, t.Dest)
+			if !h.SafeLinks || linkSchemeAllowed(t.Dest) {
+				writeEscapedURL(w, t.Dest)
+			}
 			if t.Title != "" {
 				w.WriteString(`" title="`)
 				writeEscaped(w, t.Title)
@@ -261,14 +274,17 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 			}
 			end := findClose(toks, i, token.Image)
 			w.WriteString(`<img src="`)
-			writeEscaped(w, t.Dest)
+			if !h.SafeLinks || linkSchemeAllowed(t.Dest) {
+				writeEscapedURL(w, t.Dest)
+			}
 			w.WriteString(`" alt="`)
 			writeEscaped(w, plainText(toks[i+1:end]))
 			if t.Title != "" {
 				w.WriteString(`" title="`)
 				writeEscaped(w, t.Title)
 			}
-			w.WriteString(pick(h.XHTML, `" />`, `">`))
+			w.WriteByte('"')
+			h.CloseVoidElement(w)
 			i = end
 		case token.Custom:
 			if int(t.Tag) < len(h.custom) {
@@ -311,8 +327,11 @@ func findClose(toks []token.Inline, i int, node token.Node) int {
 func plainText(toks []token.Inline) string {
 	n := 0
 	for _, t := range toks {
-		if t.Node == token.Text || t.Node == token.CodeSpan {
+		switch t.Node {
+		case token.Text, token.CodeSpan:
 			n += len(t.Text)
+		case token.SoftBreak, token.HardBreak:
+			n++
 		}
 	}
 	if n == 0 {
@@ -321,8 +340,11 @@ func plainText(toks []token.Inline) string {
 	var b strings.Builder
 	b.Grow(n)
 	for _, t := range toks {
-		if t.Node == token.Text || t.Node == token.CodeSpan {
+		switch t.Node {
+		case token.Text, token.CodeSpan:
 			b.WriteString(t.Text)
+		case token.SoftBreak, token.HardBreak:
+			b.WriteByte(' ')
 		}
 	}
 	return b.String()
@@ -335,9 +357,147 @@ func pick(cond bool, yes, no string) string {
 	return no
 }
 
-// writeEscaped HTML-escapes s and writes it.
+// writeEscaped streams CommonMark's four HTML escapes without allocating an
+// intermediate escaped string.
 func writeEscaped(w renderer.Writer, s string) {
-	w.WriteString(html.EscapeString(s))
+	start := 0
+	for i := 0; i < len(s); i++ {
+		var escaped string
+		switch s[i] {
+		case '&':
+			escaped = "&amp;"
+		case '<':
+			escaped = "&lt;"
+		case '>':
+			escaped = "&gt;"
+		case '"':
+			escaped = "&quot;"
+		default:
+			continue
+		}
+		if start < i {
+			w.WriteString(s[start:i])
+		}
+		w.WriteString(escaped)
+		start = i + 1
+	}
+	if start < len(s) {
+		w.WriteString(s[start:])
+	}
+}
+
+const upperHex = "0123456789ABCDEF"
+
+// writeEscapedURL follows the CommonMark reference renderer's href escaping:
+// URL-safe ASCII and existing percent escapes pass through, ampersand and
+// apostrophe use HTML entities, and every other byte is percent-encoded. Since
+// non-ASCII input is UTF-8, encoding by byte produces its standard URL form.
+func writeEscapedURL(w renderer.Writer, s string) {
+	start := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x80 && isURLSafeASCII(c) {
+			continue
+		}
+		if start < i {
+			w.WriteString(s[start:i])
+		}
+		switch c {
+		case '&':
+			w.WriteString("&amp;")
+		case '\'':
+			w.WriteString("&#x27;")
+		default:
+			w.WriteByte('%')
+			w.WriteByte(upperHex[c>>4])
+			w.WriteByte(upperHex[c&0x0f])
+		}
+		start = i + 1
+	}
+	if start < len(s) {
+		w.WriteString(s[start:])
+	}
+}
+
+// safeLinkSchemes are the URI schemes WithSafeLinks permits in a link or image
+// destination. Every other scheme — javascript:, data:, vbscript:, … — is
+// treated as unsafe and rendered with an empty destination.
+var safeLinkSchemes = map[string]bool{
+	"http":   true,
+	"https":  true,
+	"mailto": true,
+	"tel":    true,
+}
+
+// linkSchemeAllowed reports whether dest may be emitted as a destination under
+// WithSafeLinks. A relative reference (no scheme) is always allowed; a scheme is
+// allowed only if it is on the allowlist. The scheme is read the way a browser's
+// URL parser sees it — leading control/space stripped and embedded tab/newline
+// removed — so a decoded entity or a "java&#9;script:" cannot smuggle a
+// disallowed scheme past the check. dest is the already entity-decoded
+// destination, which is exactly why the filter belongs here at the renderer.
+func linkSchemeAllowed(dest string) bool {
+	var buf [24]byte
+	n := 0
+	i := 0
+	for i < len(dest) && dest[i] <= ' ' {
+		i++ // the URL parser strips leading C0 controls and spaces
+	}
+	for ; i < len(dest); i++ {
+		c := dest[i]
+		switch {
+		case c == '\t' || c == '\n' || c == '\r':
+			continue // removed from the URL before scheme parsing
+		case c == ':':
+			if n == 0 {
+				return true // empty scheme: treat as a relative reference
+			}
+			return safeLinkSchemes[string(buf[:n])]
+		case c == '/' || c == '?' || c == '#':
+			return true // path/query/fragment before any ':' — relative
+		case n == 0:
+			if !isSchemeStart(c) {
+				return true // not a scheme start — relative reference
+			}
+			buf[n] = asciiLower(c)
+			n++
+		case isSchemeByte(c):
+			if n >= len(buf) {
+				return false // implausibly long scheme, not on any allowlist
+			}
+			buf[n] = asciiLower(c)
+			n++
+		default:
+			return true // a non-scheme byte before ':' — relative reference
+		}
+	}
+	return true // no ':' at all — relative reference
+}
+
+func isSchemeStart(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
+
+func isSchemeByte(c byte) bool {
+	return isSchemeStart(c) || '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.'
+}
+
+func asciiLower(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
+}
+
+func isURLSafeASCII(c byte) bool {
+	if '0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' {
+		return true
+	}
+	switch c {
+	case '!', '#', '$', '%', '(', ')', '*', '+', ',', '-', '.', '/',
+		':', ';', '=', '?', '@', '^', '_', '~':
+		return true
+	default:
+		return false
+	}
 }
 
 // firstWord returns the first word of an info string (the code fence language).

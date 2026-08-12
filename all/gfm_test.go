@@ -8,9 +8,9 @@ import (
 	"github.com/Wenrh2004/mdflow/all"
 )
 
-// The GFM constructs — tables and strikethrough — exercised through the
-// full-syntax bundle. They moved here from the core module's tests when tables
-// and strikethrough became their own extension modules.
+// The GFM constructs — tables, strikethrough and task lists — exercised through
+// the full-syntax bundle. They live outside the CommonMark profile in their own
+// extension modules.
 func TestGFMSyntax(t *testing.T) {
 	cases := []struct {
 		name string
@@ -29,6 +29,12 @@ func TestGFMSyntax(t *testing.T) {
 			"| a |\n| - |\n| *x* |\n",
 			"<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n" +
 				"<tbody>\n<tr>\n<td><em>x</em></td>\n</tr>\n</tbody>\n</table>\n",
+		},
+		{
+			"task list",
+			"- [ ] todo\n- [x] done\n",
+			"<ul>\n<li><input type=\"checkbox\" disabled /> todo</li>\n" +
+				"<li><input type=\"checkbox\" checked disabled /> done</li>\n</ul>\n",
 		},
 		{
 			"pipe without delimiter row stays a paragraph",

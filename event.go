@@ -50,21 +50,25 @@ type Event struct {
 	Type EventType
 	Node token.Node // for EnterEvent/LeaveEvent: which node
 
-	Text  string    // Text/Code content; also a code block's literal body
-	Dest  string    // Link / Image target
-	Title string    // link/image title
-	Tag   token.Tag // Custom discriminator
-	Info  string    // CodeBlock info string
+	Text    string    // Text/Code content
+	Content string    // raw source on a non-literal leaf Enter
+	Dest    string    // Link / Image target
+	Title   string    // link/image title
+	Tag     token.Tag // Custom discriminator
+	Info    string    // CodeBlock info string
 
-	Level   int  // Heading level
-	Ordered bool // List
-	Start   int  // List first ordinal
-	Tight   bool // paragraph inside a tight list item
-	Literal bool // leaf Enter: body is verbatim, arriving as one TextEvent
+	Level      int  // Heading level
+	Seq        int  // block-event document ordinal
+	Ordered    bool // List
+	Start      int  // List first ordinal
+	Tight      bool // paragraph/list tightness
+	Newline    bool // ListItem enter: first block starts on a new line
+	BreakAfter bool // tight Paragraph enter: a block sibling follows
+	Literal    bool // leaf Enter: body is verbatim, arriving as one TextEvent
 
-	Align  token.Align // TableCell
-	Header bool        // TableCell in the header row
-	Task   int8        // ListItem: 0 none, 1 unchecked, 2 checked
+	Align   token.Align         // TableCell
+	Header  bool                // TableCell in the header row
+	Context token.InlineContext // structural context for inline-parsed leaves
 }
 
 // IsBlock reports whether the event's node is a block-level node.
@@ -78,9 +82,12 @@ func ContainerEvent(typ EventType, ev token.BlockEvent) Event {
 		Type:    typ,
 		Node:    ev.Container,
 		Tag:     ev.Tag,
+		Seq:     ev.Seq,
 		Ordered: ev.Ordered,
 		Start:   ev.Start,
-		Task:    ev.Task,
+		Tight:   ev.Tight,
+		Newline: ev.Newline,
+		Align:   ev.Align,
 	}
 }
 
@@ -106,7 +113,7 @@ func InlineEvent(t token.Inline) Event {
 // [Event.InlineToken] round-trip exactly — a pair would reconstruct two tokens
 // and render the node twice.
 func isAtomicNode(k token.Node, tag token.Tag) bool {
-	if k == token.HardBreak {
+	if k == token.SoftBreak || k == token.HardBreak {
 		return true
 	}
 	return k == token.Custom && tag.IsAtomic()

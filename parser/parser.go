@@ -18,34 +18,32 @@
 // none of its method set. What this package promises, it declares.
 package parser
 
-import "strings"
-
-// EachLine splits src on '\n' without allocating a []string, trimming a
-// trailing '\r' so CRLF input costs nothing extra. fn returning false stops the
-// walk.
+// EachLine splits src on any CommonMark line ending — LF, CRLF, or CR — without
+// allocating a []string. fn returning false stops the walk.
 //
 // It is exported because driving the block machine line by line is the caller's
 // job on the streaming and fan-out paths, and every such caller has to agree
 // with the parser about where a line ends.
 func EachLine(src string, fn func(line string) bool) {
-	for {
-		i := strings.IndexByte(src, '\n')
-		if i < 0 {
-			break
+	start := 0
+	for i := 0; i < len(src); i++ {
+		switch src[i] {
+		case '\n':
+			if !fn(src[start:i]) {
+				return
+			}
+			start = i + 1
+		case '\r':
+			if !fn(src[start:i]) {
+				return
+			}
+			if i+1 < len(src) && src[i+1] == '\n' {
+				i++
+			}
+			start = i + 1
 		}
-		line := src[:i]
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
-		}
-		if !fn(line) {
-			return
-		}
-		src = src[i+1:]
 	}
-	if src != "" {
-		if src[len(src)-1] == '\r' {
-			src = src[:len(src)-1]
-		}
-		fn(src)
+	if start < len(src) {
+		fn(src[start:])
 	}
 }

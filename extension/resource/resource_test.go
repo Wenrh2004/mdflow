@@ -77,3 +77,12 @@ func TestIsResource(t *testing.T) {
 		t.Errorf("IsResource: inline=%d block=%d, want 1 and 1", inline, block)
 	}
 }
+
+func TestEmbedInterruptsLazyBlockquoteContinuation(t *testing.T) {
+	const src = "> para\n![[image.png]]\n"
+	const want = "<blockquote>\n<p>para</p>\n</blockquote>\n" +
+		"<div class=\"embed\" data-resource=\"image.png\">image.png</div>\n"
+	if got := newParser().HTML(src); got != want {
+		t.Fatalf("embed was swallowed as lazy paragraph text\n got: %q\nwant: %q", got, want)
+	}
+}

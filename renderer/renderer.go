@@ -7,9 +7,10 @@
 // # Capabilities
 //
 // [Renderer] is the floor: enough to serialise a CommonMark document. Anything
-// beyond that — hosting the custom nodes an extension introduces, or deep-copying
-// itself so a derived parser can diverge — is an *optional capability*, declared
-// as its own small interface in the manner of io.ReaderFrom or http.Flusher.
+// beyond that — hosting the custom nodes an extension introduces, deep-copying
+// itself so a derived parser can diverge, or choosing output-specific spelling
+// for a void element — is an *optional capability*, declared as its own small
+// interface in the manner of io.ReaderFrom or http.Flusher.
 //
 // This is what lets package extension configure output without importing
 // renderer/html. It also makes an unsupported capability a condition a caller
@@ -98,6 +99,13 @@ type (
 	NodeOverrider interface {
 		OverrideNode(node token.Node, fn InlineRenderFunc)
 	}
+
+	// VoidElementCloser writes the configured terminator for a void element.
+	// HTML uses it to choose XHTML's ` />` or HTML5's `>` without requiring an
+	// extension that emits a void element to import renderer/html.
+	VoidElementCloser interface {
+		CloseVoidElement(w Writer)
+	}
 )
 
 // RegisterCustom registers fn as the rendering for a custom inline tag,
@@ -136,6 +144,16 @@ func OverrideNode(r Renderer, node token.Node, fn InlineRenderFunc) bool {
 	ov, ok := r.(NodeOverrider)
 	if ok {
 		ov.OverrideNode(node, fn)
+	}
+	return ok
+}
+
+// CloseVoidElement asks r to write its configured void-element terminator. It
+// reports false when the output format has no such convention.
+func CloseVoidElement(r Renderer, w Writer) bool {
+	closer, ok := r.(VoidElementCloser)
+	if ok {
+		closer.CloseVoidElement(w)
 	}
 	return ok
 }

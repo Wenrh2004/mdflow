@@ -12,5 +12,6 @@ use (
 	./extension/resource
 	./extension/strikethrough
 	./extension/table
+	./extension/tasklist
 	./extension/typography
 )

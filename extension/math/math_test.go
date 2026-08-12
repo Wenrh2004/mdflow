@@ -83,3 +83,12 @@ func TestMathBlockSurvivesStreaming(t *testing.T) {
 		}
 	}
 }
+
+func TestMathBlockInterruptsLazyBlockquoteContinuation(t *testing.T) {
+	const src = "> para\n$$\nx\n$$\n"
+	const want = "<blockquote>\n<p>para</p>\n</blockquote>\n" +
+		"<pre><code class=\"language-math\">x\n</code></pre>\n"
+	if got := newParser().HTML(src); got != want {
+		t.Fatalf("math block was swallowed as lazy paragraph text\n got: %q\nwant: %q", got, want)
+	}
+}

@@ -77,11 +77,14 @@ func (mathRule) Match(s *parser.InlineState) bool {
 type mathBlockRule struct{}
 
 func (mathBlockRule) Name() string { return "math_block" }
+func (mathBlockRule) InterruptsParagraph(line string) bool {
+	return isMathBlockFence(line)
+}
 func (mathBlockRule) Open(s *parser.BlockState, line string) bool {
 	if s.AccumulatorTag() == mathBlockTag {
 		return false // an open block's lines are claimed by continueMathBlock
 	}
-	if strings.TrimSpace(line) != "$$" {
+	if !isMathBlockFence(line) {
 		return false
 	}
 	s.StartLiteral(mathBlockTag)
@@ -94,13 +97,15 @@ func continueMathBlock(s *parser.BlockState, line string) bool {
 	if s.AccumulatorTag() != mathBlockTag {
 		return false
 	}
-	if strings.TrimSpace(line) == "$$" {
+	if isMathBlockFence(line) {
 		s.CloseLeaf()
 		return true
 	}
 	s.AppendLine(line)
 	return true
 }
+
+func isMathBlockFence(line string) bool { return strings.TrimSpace(line) == "$$" }
 
 // ---- output (HTML) ----
 

@@ -1,6 +1,7 @@
 package mdflow_test
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -55,10 +56,9 @@ func TestRenderHTML(t *testing.T) {
 			"<ol start=\"3\">\n<li>a</li>\n<li>b</li>\n</ol>\n",
 		},
 		{
-			"task list",
+			"GFM task marker is CommonMark text",
 			"- [ ] todo\n- [x] done\n",
-			"<ul>\n<li><input type=\"checkbox\" disabled /> todo</li>\n" +
-				"<li><input type=\"checkbox\" checked disabled /> done</li>\n</ul>\n",
+			"<ul>\n<li>[ ] todo</li>\n<li>[x] done</li>\n</ul>\n",
 		},
 		{
 			"blockquote",
@@ -186,6 +186,20 @@ func TestTransforms(t *testing.T) {
 			"<p>a</p>\n<p>b</p>\n",
 		},
 		{
+			"atomic match nested inside dropped span",
+			mdflow.New().Transform(mdflow.Drop(func(e mdflow.Event) bool {
+				return e.Node == token.Blockquote || e.Node == token.SoftBreak
+			})),
+			"> a\n> b\n\nafter\n",
+			"<p>after</p>\n",
+		},
+		{
+			"drop heading at level keeps following sibling",
+			mdflow.New().Transform(mdflow.Drop(mdflow.AtLevel(2))),
+			"## gone\n\nkeep\n",
+			"<p>keep</p>\n",
+		},
+		{
 			"unwrap links keeps text",
 			mdflow.New().Transform(mdflow.Unwrap(mdflow.IsLink)),
 			"see [docs](https://go.dev)\n",
@@ -251,6 +265,13 @@ func TestTextAndHeadings(t *testing.T) {
 	hs := p.Headings(src)
 	if len(hs) != 2 || hs[0].Level != 1 || hs[0].Text != "Title" || hs[1].Level != 2 || hs[1].Text != "Sub" {
 		t.Errorf("Headings: got %+v", hs)
+	}
+
+	if got, want := p.Text("a\\\nb\n"), "a\nb"; got != want {
+		t.Errorf("Text hard break: got %q want %q", got, want)
+	}
+	if got, want := p.Headings("a\\\nb\n===\n"), []mdflow.Heading{{Level: 1, Text: "a\nb"}}; !slices.Equal(got, want) {
+		t.Errorf("Headings hard break: got %+v want %+v", got, want)
 	}
 }
 
