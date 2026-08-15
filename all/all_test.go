@@ -102,7 +102,7 @@ func TestSyntaxWithoutOutputRendersNoMarkup(t *testing.T) {
 // raw HTML after autolink on `<`).
 func TestAllRendersEveryFlavour(t *testing.T) {
 	src := "# T\n\n~~strike~~ and $x$ and #tag and ==mark== and ~sub~ and ^sup^ and ||spoiler||\n\n" +
-		"[[ref]] and <https://go.dev>\n\n| a | b |\n| - | - |\n| 1 | 2 |\n"
+		"[[ref]] and <https://go.dev>\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n- [x] task\n"
 	got := all.New().HTML(src)
 	for _, want := range []string{
 		"<del>strike</del>",
@@ -115,6 +115,7 @@ func TestAllRendersEveryFlavour(t *testing.T) {
 		`<span class="reference" data-resource="ref">ref</span>`,
 		`<a href="https://go.dev">https://go.dev</a>`,
 		"<table>",
+		`<input type="checkbox" checked disabled />`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("all.New() output missing %q\n got: %q", want, got)
@@ -131,7 +132,8 @@ func TestBuilderMatchesAllNew(t *testing.T) {
 	}
 }
 
-// GFM is a strict subset: tables and strikethrough on, Memos syntax off.
+// GFM is a strict subset: tables, strikethrough and task lists on; Memos syntax
+// off.
 func TestGFMBundleIsSubset(t *testing.T) {
 	p := mdflow.New(mdflow.WithOnly(gfm.GFM))
 	if got, want := p.HTML("~~gone~~\n"), "<p><del>gone</del></p>\n"; got != want {

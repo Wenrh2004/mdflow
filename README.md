@@ -62,18 +62,19 @@ output through the capability interfaces in `renderer`, so a new output format
 is a new `Renderer` and new syntax is a new capability, and neither has to know
 the other exists.
 
-There is no `internal/` package. There was one, holding the state machines,
-with `parser` re-exporting every one of its exported identifiers as a type
-alias. That boundary hid nothing and cost the package its documentation — a
-type alias renders no method set, so `go doc parser.Config` printed the alias
-and none of `AddLeafRule`, `AddInlineRule` or the rest. What `parser` promises,
-it now declares.
+`internal/` is reserved for implementation details rather than public parser
+types. In particular, the raw-HTML implementation lives there and is exposed
+through `extension/rawhtml`; the public `parser` package declares the state
+machines and extension seams it promises directly.
 
 ### Capabilities
 
-Everything past the CommonMark subset — GFM tables, math, hashtags, typography,
-wiki resources, raw HTML — is an **extension capability**, and a capability owns
-*both* halves of its feature:
+Flavour syntax beyond CommonMark — GFM tables and task lists, math, hashtags,
+typography and wiki resources — is an **extension capability**, and a
+capability owns *both* halves of its feature. CommonMark raw HTML uses the same
+seam so the parser core stays raw-HTML-blind and output behaviour is registered
+through renderer capabilities; `mdflow.New` composes it into the default profile
+with safe escaping:
 
 ```go
 type Extension interface {
@@ -93,9 +94,10 @@ var Strikethrough = extension.Capability{
 }
 ```
 
-— and `token` never learns the word "strikethrough". It enumerates CommonMark
-plus three open kinds (`Custom`, `CustomLeaf`, `CustomContainer`), each carrying
-a tag, so syntax you invent sits on exactly the footing the bundled flavours do.
+— and `token` never learns the word "strikethrough". Its built-in structural
+vocabulary is joined by three open kinds (`Custom`, `CustomLeaf`,
+`CustomContainer`), each carrying a tag, so syntax you invent sits on exactly
+the footing the bundled flavours do.
 
 `renderer.Renderer` is the floor; hosting custom nodes and deep-copying are
 *optional capabilities* (`CustomRegistrar`, `Cloner`, …) in the manner of
@@ -106,27 +108,48 @@ can observe rather than a branch that quietly skips.
 ### Construction
 
 ```go
-md := mdflow.New()                        // every capability, batteries in
+import (
+    "github.com/Wenrh2004/mdflow"
+    "github.com/Wenrh2004/mdflow/all"
+    "github.com/Wenrh2004/mdflow/extension/gfm"
+    "github.com/Wenrh2004/mdflow/extension/rawhtml"
+    "github.com/Wenrh2004/mdflow/parser"
+    "github.com/Wenrh2004/mdflow/renderer/html"
+)
 
-md := mdflow.NewBuilder().                // configured
-    Only(extension.GFM).
+var commonmark = mdflow.New()             // complete CommonMark 0.31.2, safe HTML
+
+var commonmarkGFM = mdflow.New(           // preserve CommonMark; add GFM
+    mdflow.WithExtensions(gfm.GFM),
+)
+
+var everything = all.New()                // CommonMark + bundled GFM and Memos
+
+var trusted = mdflow.New(                 // raw HTML verbatim for trusted input
+    rawhtml.WithUnsafeHTML(),
+)
+
+var configured = mdflow.NewBuilder().     // configured CommonMark + GFM
+    Use(gfm.GFM).
     Renderer(html.NewRenderer()).
     With(mdflow.WithHTML5()).
     Build()
 
-md := mdflow.NewWith(                     // exactly what you ask for
-    parser.New(),                         // CommonMark subset
+var explicit = mdflow.NewWith(            // exactly the named profile
+    parser.New(),                         // built-ins; intentionally HTML-blind
     html.NewRenderer(),
-    extension.GFM,                        // tables + strikethrough only
+    rawhtml.RawHTML,                      // completes CommonMark safely
+    gfm.GFM,                              // tables + strikethrough + task lists
 )
 ```
 
 `Builder` is the only wiring path; `New` and its options delegate to it. Options
 *record* choices and `Build` applies them once, in a fixed order — rules and
-renderer settle, then capabilities, then renderer tweaks. That is not a style
-preference. When options configured as they ran, `New(WithRenderer(...))`
-discarded every capability registration made against the renderer it replaced,
-and `WithHTML5` landed or did not depending on its position in the argument list.
+renderer settle, then capabilities, output policies, and renderer tweaks. That
+is not a style preference. When options configured as they ran,
+`New(WithRenderer(...))` discarded every capability registration made against
+the renderer it replaced, and `WithHTML5` landed or did not depending on its
+position in the argument list.
 
 ### Naming
 
@@ -165,7 +188,7 @@ the name belongs to the node kind.
 flowchart LR
     src["markdown<br/><i>string or chunks</i>"]
     block["block state machine<br/><i>line-driven, never revisits<br/>a closed block</i>"]
-    inline["inline parser<br/><i>per closed leaf,<br/>independent</i>"]
+    inline["inline parser<br/><i>resumable per leaf,<br/>shared references</i>"]
     mw["middleware chain<br/><i>Map · Filter · Drop</i>"]
     rend["Renderer<br/><i>HTML, or your own</i>"]
     out["output<br/><i>string or io.Writer</i>"]
@@ -184,10 +207,12 @@ flowchart LR
 ```
 
 Block structure is strictly sequential — a line's meaning depends on the
-container stack above it. Inline parsing of a *closed* leaf depends on nothing
-outside that leaf, which is both why the fan-out in `Workers` is possible and
-why the dashed fast path can bypass the event stream entirely when no middleware
-is installed.
+container stack above it. Most closed leaves proceed directly through inline
+parsing. If one reaches an unresolved reference, its cursor and the suffix
+behind it pause until a later definition resolves it or end of input seals the
+definition map. `Workers` runs only after that map is sealed and immutable; the
+dashed fast path can still bypass the public event stream when no middleware is
+installed.
 
 ---
 
@@ -199,10 +224,11 @@ allocates a node per construct, nothing walks a tree twice, and a consumer can
 stop halfway through a document and the parser stops with it.
 
 **Line-driven and incremental.** The block state machine never revisits a closed
-block, so appending input only touches the top of the container stack. Feeding a
-document in 64-byte chunks costs the same as parsing it whole — which is why
-`Stream` is O(n) where the usual chat-UI approach (re-parse everything on every
-chunk) is O(n²).
+block, so appending input only touches the top of the container stack. A forward
+reference retains only the unresolved suffix and resumes its cursor when a
+definition arrives; it does not trigger a document prepass or reparse. Feeding
+a document in 64-byte chunks therefore remains O(n), where the usual chat-UI
+approach (re-parse everything on every chunk) is O(n²).
 
 **Rules, not switches.** Block and inline syntax live in registries
 (`ContainerRule`, `LeafRule`, `InlineRule`) and output lives behind `Renderer`.
@@ -333,10 +359,10 @@ interface and reports whether the renderer took it. `Parser.WithExtensions`
 deep-copies the rule set and renderer, so `md` is a new parser and the one it
 derived from is untouched.
 
-`extension.Strikethrough` is the smallest complete capability — one inline rule,
-one tag registration — and `extension.Table` the largest, pairing two rules with
-five render targets. Both live in one value, which is why neither can ship half
-of itself.
+`strikethrough.Strikethrough` in `extension/strikethrough` is the smallest
+complete capability — one inline rule, one tag registration — and `table.Table`
+in `extension/table` the largest, pairing two rules with five render targets.
+Both live in one value, which is why neither can ship half of itself.
 
 ---
 
@@ -411,15 +437,11 @@ own superlinear cost into minutes per iteration.
 
 ### Honest caveats
 
-- **mdflow is a CommonMark subset**, not a compliant implementation — see
-  [Supported syntax](#supported-syntax). Indented code blocks, reference links,
-  raw HTML *blocks* and footnotes are absent, and some of the speed comes from
-  doing less. (gomark implements none of those either.) Against the pinned
-  CommonMark spec suite (v0.31.2, 652 examples) the core passes **49.2% raw**
-  and **57.9% of the supported subset** — the sections it implements, excluding
-  the deliberately-absent ones above and source-entity/tab handling. The number
-  is measured by `TestCommonMarkConformance`, not asserted here, and carries a
-  regression floor so it can only move up.
+- **CommonMark conformance is pinned, not inferred.** With trusted-input raw
+  HTML output enabled, `TestCommonMarkConformance` matches all **652/652**
+  official CommonMark 0.31.2 examples byte for byte. The default profile parses
+  the same protocol but intentionally escapes recognised raw HTML; use
+  `rawhtml.WithUnsafeHTML` only when verbatim output is appropriate.
 - **Feature coverage is now a superset of gomark's**, verified construct by
   construct in `TestFeatureCoverage`: every one of gomark's 31 AST node types has
   an mdflow equivalent. The speed is therefore not bought by parsing less than
@@ -443,7 +465,7 @@ mdflow does not. Recorded here because "we are faster" means little without
 | `Title\n=====` | `<p>Title<br><mark></mark>=</p>` | `<h1>Title</h1>` |
 | `[a](/b "t")` | literal text — no title support | `<a href="/b" title="t">a</a>` |
 | `<!-- comment -->` | `<a href="!-- comment --">` | escaped as text |
-| `<div>x</div>` | `<a href="div">div</a>x…` | passed through as HTML |
+| `<div>x</div>` | `<a href="div">div</a>x…` | recognised as raw HTML and escaped by default |
 | `***bi***` | `<strong><em>` | `<em><strong>` (CommonMark order) |
 | `\|a\|b\|` + `\|-\|-\|` | not a table (needs 3+ dashes) | table |
 
@@ -454,9 +476,10 @@ parses that mdflow does not.
 
 ## Parallelism: measured, not assumed
 
-CommonMark's appendix A notes that block structure is inherently sequential
-while inline parsing of a closed leaf depends on nothing outside that leaf. So
-phase two can be distributed. `Workers(n)` does that — and it is off by default,
+CommonMark's appendix A notes that block structure is inherently sequential.
+mdflow completes that phase and seals the document's reference definitions
+before fan-out; each worker then parses closed leaves against the same immutable
+resolver. `Workers(n)` distributes that phase — and it is off by default,
 because it only pays under conditions worth stating precisely.
 
 ```go
@@ -510,22 +533,18 @@ keep an option that does nothing.
 
 ## Supported syntax
 
-**Blocks** — ATX headings, setext headings, paragraphs, fenced code,
-blockquotes (nestable), ordered and unordered lists, task lists, thematic
-breaks, GFM tables with alignment, `$$` math blocks, `![[embed]]`.
+**Default profile (`mdflow.New`)** — complete CommonMark 0.31.2: ATX and setext
+headings, paragraphs, thematic breaks, indented and fenced code, blockquotes,
+ordered and unordered tight/loose lists with lazy continuation, link reference
+definitions, entities and tab expansion; plus emphasis/strong, code spans,
+inline and reference links/images, autolinks, raw HTML blocks and inlines, and
+hard/soft line breaks. Raw HTML is recognised through an extension capability
+and escaped by default.
 
-**Inline** — emphasis, strong, inline code, links (with titles), images,
-autolinks (`<url>`, `<email>`), strikethrough, hard breaks (both spellings),
-backslash escapes, `$math$`, `#hashtags`, `==highlight==`, `~subscript~`,
-`^superscript^`, `||spoiler||`, `[[reference]]`, raw HTML tags.
-
-**Not implemented** — indented code blocks, reference-style links, raw HTML
-*blocks*, HTML comments, footnotes, lazy continuation, loose-list semantics.
-Emphasis flanking is simplified to "adjacent to non-whitespace" rather than the
-full CommonMark rule.
-
-These are omissions of scope, not of design: each is a rule you can register
-through the public API without forking the package.
+**Bundled flavours (`all.New`)** — GFM tables, strikethrough and task lists;
+Memos math blocks, embeds, inline math, hashtags, highlight, subscript,
+superscript, spoilers and wiki-style resources. Task-list markers belong to the
+GFM extension and are not part of the core token vocabulary.
 
 ### Two deliberate differences from gomark
 
@@ -533,15 +552,31 @@ through the public API without forking the package.
 gomark stringifies it and emits the markup literally. Same for `||spoiler||`,
 `~sub~` and `^sup^`.
 
-**Raw HTML is escaped by default.** mdflow recognises inline HTML and reports it
-as `raw_html`-tagged events, but escapes it on output unless you pass
-`WithUnsafeHTML()`. gomark passes user-authored tags straight through, which is
-an XSS vector for user-generated content. The capability is the same; the safe
-default is not.
+**Raw HTML is escaped by default.** mdflow recognises CommonMark raw HTML blocks
+and inlines and reports them as tagged events, but escapes them on output unless
+you pass `rawhtml.WithUnsafeHTML()`. gomark passes user-authored tags straight
+through, which is an XSS vector for user-generated content. The capability is
+the same; the safe default is not.
 
 ```go
-mdflow.HTML("<script>alert(1)</script>")            // escaped
-mdflow.New(mdflow.WithUnsafeHTML()).HTML(trusted)   // passed through
+import "github.com/Wenrh2004/mdflow/extension/rawhtml"
+
+mdflow.HTML("<script>alert(1)</script>")             // escaped
+mdflow.New(rawhtml.WithUnsafeHTML()).HTML(trusted)   // verbatim
+```
+
+**Safe-by-default covers raw HTML only.** Link and image URI schemes are *not*
+filtered by default — `[x](javascript:alert(1))` renders as a live
+`href="javascript:..."`, which is spec-compliant (cmark does the same) but a
+sink for user-generated content. Because destinations are entity-decoded before
+output, `[x](java&#115;cript:alert(1))` reaches the renderer as `javascript:`
+too, so a source-level filter downstream would miss it. Pass
+`mdflow.WithSafeLinks()` to filter destinations to an `http`/`https`/`mailto`/
+`tel`/relative allowlist, evaluated on the decoded destination:
+
+```go
+mdflow.New().HTML("[x](javascript:alert(1))")                    // href="javascript:alert(1)"
+mdflow.New(mdflow.WithSafeLinks()).HTML("[x](javascript:alert(1))") // href="" — inert
 ```
 
 ---

@@ -3,10 +3,11 @@ package mdflow_test
 import (
 	"encoding/json"
 	"os"
-	"sort"
+	"strings"
 	"testing"
 
 	"github.com/Wenrh2004/mdflow"
+	internalrawhtml "github.com/Wenrh2004/mdflow/internal/rawhtml"
 )
 
 // specExample is one entry of the CommonMark spec test suite
@@ -18,46 +19,8 @@ type specExample struct {
 	Section  string `json:"section"`
 }
 
-// unsupportedSections are the spec sections mdflow's core deliberately does not
-// implement, so their examples are excluded from the "supported subset" figure.
-// Each is a documented omission, not a bug:
-//
-//   - Indented code blocks, Link reference definitions, HTML blocks: declared
-//     absent from the core in the package doc ("Deliberately absent from the
-//     core: indented code blocks, reference links, raw HTML blocks ...").
-//   - Entity and numeric character references: the core escapes for output but
-//     does not decode source entities like &amp; or &#42;.
-//   - Tabs: the core does not expand a leading tab to the CommonMark four-space
-//     stop, treating indentation by byte instead.
-//
-// The raw figure below counts every section regardless, so this list can only
-// ever make the reported number more generous in a way the reader can audit
-// against the section names — it cannot hide a regression, which the floor
-// assertions catch on the raw count.
-var unsupportedSections = map[string]bool{
-	"Indented code blocks":                    true,
-	"Link reference definitions":              true,
-	"HTML blocks":                             true,
-	"Entity and numeric character references": true,
-	"Tabs": true,
-}
-
-// Regression floors, measured against spec 0.31.2. They assert "no worse than
-// today": a change that improves conformance raises the real number above the
-// floor and the test still passes, while a regression drops below it and fails.
-// Bump them when conformance genuinely improves.
-const (
-	rawPassFloor     = 321 // out of 652 total
-	subsetPassFloor  = 313 // out of the supported-subset total
-	subsetRatioFloor = 0.578
-)
-
-// TestCommonMarkConformance runs the pinned CommonMark spec suite through the
-// CommonMark-only core parser and reports the pass rate, replacing the README's
-// prose compliance claims with a measured number. It is a report with a floor,
-// not a strict gate: individual mismatches in a supported section are logged,
-// not failed, so the suite stays useful as coverage grows.
-func TestCommonMarkConformance(t *testing.T) {
+func loadSpecExamples(t *testing.T) []specExample {
+	t.Helper()
 	raw, err := os.ReadFile("testdata/spec.json")
 	if err != nil {
 		t.Fatalf("read spec.json: %v", err)
@@ -69,59 +32,140 @@ func TestCommonMarkConformance(t *testing.T) {
 	if len(examples) == 0 {
 		t.Fatal("spec.json held no examples")
 	}
+	return examples
+}
 
-	p := mdflow.New()
+// TestCommonMarkConformance is the release gate for the complete CommonMark
+// 0.31.2 protocol. The official examples expect trusted raw HTML verbatim;
+// mdflow.New keeps the same syntax safe by default, so this profile changes
+// only raw-HTML output.
+func TestCommonMarkConformance(t *testing.T) {
+	examples := loadSpecExamples(t)
+	if got, want := len(examples), 652; got != want {
+		t.Fatalf("pinned CommonMark suite has %d examples, want %d", got, want)
+	}
 
-	type stat struct{ pass, total int }
-	bySection := map[string]*stat{}
-	var rawPass, subsetPass, subsetTotal int
-
+	p := mdflow.New(mdflow.WithExtensions(internalrawhtml.UnsafeHTML))
 	for _, e := range examples {
-		s := bySection[e.Section]
-		if s == nil {
-			s = &stat{}
-			bySection[e.Section] = s
+		if got := p.HTML(e.Markdown); got != e.HTML {
+			t.Errorf("example %d (%s)\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Section, e.Markdown, got, e.HTML)
 		}
-		s.total++
-		ok := p.HTML(e.Markdown) == e.HTML
-		if ok {
-			rawPass++
-			s.pass++
+	}
+}
+
+func TestCommonMarkProtocolAcrossEventAndStreamSurfaces(t *testing.T) {
+	p := mdflow.New(mdflow.WithExtensions(internalrawhtml.UnsafeHTML))
+	identity := p.Map(func(event mdflow.Event) mdflow.Event { return event })
+
+	for _, e := range loadSpecExamples(t) {
+		if got := identity.HTML(e.Markdown); got != e.HTML {
+			t.Errorf("example %d identity pipeline\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Markdown, got, e.HTML)
+			continue
 		}
-		if !unsupportedSections[e.Section] {
-			subsetTotal++
-			if ok {
-				subsetPass++
+
+		stream := p.Stream()
+		var committed strings.Builder
+		for i := 0; i < len(e.Markdown); i++ {
+			committed.WriteString(stream.Feed(e.Markdown[i : i+1]))
+			if got, want := committed.String()+stream.Provisional(), p.HTML(e.Markdown[:i+1]); got != want {
+				t.Errorf("example %d stream prefix %d\nmarkdown: %q\n got: %q\nwant: %q", e.Example, i+1, e.Markdown[:i+1], got, want)
+				break
 			}
 		}
-	}
-
-	sections := make([]string, 0, len(bySection))
-	for name := range bySection {
-		sections = append(sections, name)
-	}
-	sort.Strings(sections)
-	for _, name := range sections {
-		s := bySection[name]
-		skipped := ""
-		if unsupportedSections[name] {
-			skipped = "  (excluded: unsupported)"
+		committed.WriteString(stream.Close())
+		if got := committed.String(); got != e.HTML {
+			t.Errorf("example %d byte stream\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Markdown, got, e.HTML)
 		}
-		t.Logf("%3d/%3d  %s%s", s.pass, s.total, name, skipped)
 	}
+}
 
-	rawRatio := 100 * float64(rawPass) / float64(len(examples))
-	subsetRatio := float64(subsetPass) / float64(subsetTotal)
-	t.Logf("raw:              %d/%d = %.1f%%", rawPass, len(examples), rawRatio)
-	t.Logf("supported subset: %d/%d = %.1f%%", subsetPass, subsetTotal, 100*subsetRatio)
+func TestStrictCompletedCommonMarkSections(t *testing.T) {
+	completed := map[string]bool{
+		"ATX headings":                 true,
+		"Autolinks":                    true,
+		"Blank lines":                  true,
+		"Block quotes":                 true,
+		"Code spans":                   true,
+		"Emphasis and strong emphasis": true,
+		"Fenced code blocks":           true,
+		"HTML blocks":                  true,
+		"Hard line breaks":             true,
+		"Indented code blocks":         true,
+		"Inlines":                      true,
+		"List items":                   true,
+		"Paragraphs":                   true,
+		"Precedence":                   true,
+		"Raw HTML":                     true,
+		"Setext headings":              true,
+		"Soft line breaks":             true,
+		"Tabs":                         true,
+		"Textual content":              true,
+		"Thematic breaks":              true,
+	}
+	// The official suite expects raw HTML verbatim. mdflow.New keeps the same
+	// syntax safe by default; this trusted profile changes only its output.
+	p := mdflow.New(mdflow.WithExtensions(internalrawhtml.UnsafeHTML))
+	for _, e := range loadSpecExamples(t) {
+		if !completed[e.Section] {
+			continue
+		}
+		if got := p.HTML(e.Markdown); got != e.HTML {
+			t.Errorf("example %d (%s)\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Section, e.Markdown, got, e.HTML)
+		}
+	}
+}
 
-	if rawPass < rawPassFloor {
-		t.Errorf("raw conformance regressed: %d passing, floor is %d", rawPass, rawPassFloor)
+func TestStrictCommonMarkInlineLinks(t *testing.T) {
+	p := mdflow.New()
+	for _, e := range loadSpecExamples(t) {
+		// Examples 482-526 are the inline-link portion of the Links section.
+		// Examples 491, 494 and 524 require the trusted raw-HTML profile and are
+		// covered by TestCommonMarkConformance rather than this narrow safe-profile gate.
+		if e.Section != "Links" || e.Example < 482 || e.Example > 526 ||
+			e.Example == 491 || e.Example == 494 || e.Example == 524 {
+			continue
+		}
+		if got := p.HTML(e.Markdown); got != e.HTML {
+			t.Errorf("example %d (%s)\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Section, e.Markdown, got, e.HTML)
+		}
 	}
-	if subsetPass < subsetPassFloor {
-		t.Errorf("supported-subset conformance regressed: %d passing, floor is %d", subsetPass, subsetPassFloor)
+}
+
+func TestStrictCommonMarkInlineImages(t *testing.T) {
+	inlineImages := map[int]bool{
+		572: true,
+		574: true,
+		575: true,
+		578: true,
+		579: true,
+		580: true,
+		581: true,
 	}
-	if subsetRatio < subsetRatioFloor {
-		t.Errorf("supported-subset ratio regressed: %.3f, floor is %.3f", subsetRatio, subsetRatioFloor)
+	p := mdflow.New()
+	for _, e := range loadSpecExamples(t) {
+		// The remaining Images examples use reference definitions, which belong
+		// to the later reference-link slice rather than this inline-image gate.
+		if e.Section != "Images" || !inlineImages[e.Example] {
+			continue
+		}
+		if got := p.HTML(e.Markdown); got != e.HTML {
+			t.Errorf("example %d (%s)\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Section, e.Markdown, got, e.HTML)
+		}
+	}
+}
+
+func TestStrictCommonMarkReferences(t *testing.T) {
+	p := mdflow.New(mdflow.WithExtensions(internalrawhtml.UnsafeHTML))
+	for _, e := range loadSpecExamples(t) {
+		referenceCase := e.Section == "Link reference definitions" ||
+			e.Section == "Links" && e.Example >= 527 ||
+			e.Section == "Images" ||
+			e.Example == 23 || e.Example == 33 || e.Example == 317
+		if !referenceCase {
+			continue
+		}
+		if got := p.HTML(e.Markdown); got != e.HTML {
+			t.Errorf("example %d (%s)\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Section, e.Markdown, got, e.HTML)
+		}
 	}
 }

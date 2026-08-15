@@ -99,14 +99,13 @@ func Drop(pred func(Event) bool) Middleware {
 			depth := 0
 			for e := range seq {
 				if depth > 0 {
-					// Track nesting of the same node kind so an inner match
-					// does not end the outer skip early.
-					if pred(e) {
-						if e.Type == EnterEvent {
-							depth++
-						} else if e.Type == LeaveEvent {
-							depth--
-						}
+					// Once a span is selected, structural balance—not another
+					// predicate call—identifies its matching leave. Predicates
+					// may depend on metadata carried only by the opening event.
+					if e.Type == EnterEvent && !e.IsAtomic() {
+						depth++
+					} else if e.Type == LeaveEvent {
+						depth--
 					}
 					continue
 				}
@@ -128,9 +127,33 @@ func Drop(pred func(Event) bool) Middleware {
 // stripping every link while leaving the anchor text in place.
 func Unwrap(pred func(Event) bool) Middleware {
 	return func(seq iter.Seq[Event]) iter.Seq[Event] {
-		return iterx.Filter(seq, func(e Event) bool {
-			return !(pred(e) && (e.Type == EnterEvent || e.Type == LeaveEvent))
-		})
+		return func(yield func(Event) bool) {
+			selected := make([]bool, 0, 8)
+			for e := range seq {
+				switch e.Type {
+				case EnterEvent:
+					unwrap := pred(e)
+					if !e.IsAtomic() {
+						selected = append(selected, unwrap)
+					}
+					if unwrap {
+						continue
+					}
+				case LeaveEvent:
+					unwrap := false
+					if n := len(selected); n > 0 {
+						unwrap = selected[n-1]
+						selected = selected[:n-1]
+					}
+					if unwrap {
+						continue
+					}
+				}
+				if !yield(e) {
+					return
+				}
+			}
+		}
 	}
 }
 

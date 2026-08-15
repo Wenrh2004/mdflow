@@ -51,6 +51,10 @@ const (
 
 	// Custom is an extension inline node: Inline{Node: Custom, Tag: ...}.
 	Custom
+
+	// SoftBreak was added after the original node set so existing numeric node
+	// values remain stable.
+	SoftBreak
 )
 
 var nodeNames = [...]string{
@@ -72,6 +76,7 @@ var nodeNames = [...]string{
 	Image:           "image",
 	HardBreak:       "hard_break",
 	Custom:          "custom",
+	SoftBreak:       "soft_break",
 }
 
 // String implements fmt.Stringer.
@@ -93,6 +98,17 @@ const (
 	AlignRight
 )
 
+// InlineContext describes structural facts about the leaf whose inline content
+// is being parsed. It is a bit set so future extensions can consume orthogonal
+// context without teaching the core about their syntax.
+type InlineContext uint8
+
+const (
+	// InlineContextListItemHead marks the first direct Paragraph child of a
+	// ListItem. It describes structure only; extensions decide how to use it.
+	InlineContextListItemHead InlineContext = 1 << iota
+)
+
 // Inline is one flat inline token — the same shape as pulldown-cmark's
 // Start/End events or markdown-it's _open/_close tokens, deliberately *not* a
 // tree with Children.
@@ -100,7 +116,7 @@ const (
 //   - Paired nodes (Emph / Strong / Link / Image / Custom) are two tokens: an
 //     opening one (Close=false) and a closing one (Close=true). Everything
 //     between them in the stream is their content.
-//   - Leaf tokens (Text / CodeSpan / HardBreak) always have Close=false and
+//   - Leaf tokens (Text / CodeSpan / SoftBreak / HardBreak) always have Close=false and
 //     carry their own content.
 //
 // Keeping inline output flat means linear emission and linear rendering: no
@@ -131,9 +147,12 @@ type Leaf struct {
 	Tag     Tag    // CustomLeaf discriminator; the renderer dispatches on it
 	Literal bool   // Content is verbatim text and must not be inline-parsed
 	Tight   bool   // inside a tight list item: render without <p>
-	Align   Align
-	Header  bool // table cell in the header row
-	Task    int8 // list item task state: 0 none, 1 unchecked, 2 checked
+	// BreakAfter separates a tight paragraph from its following block sibling.
+	// It is decided when the containing list closes, alongside Tight.
+	BreakAfter bool
+	Align      Align
+	Header     bool // table cell in the header row
+	Context    InlineContext
 }
 
 // BlockOp discriminates block event types.
@@ -161,6 +180,7 @@ type BlockEvent struct {
 	Container Node    // valid when Type == OpenBlock/CloseBlock
 	Tag       Tag     // Container == CustomContainer discriminator
 	Ordered   bool    // Container == List: ordered list?
+	Tight     bool    // Container == List: final tightness
+	Newline   bool    // Container == ListItem: first block starts on a new line
 	Align     Align
-	Task      int8 // Container == ListItem: 0 none, 1 unchecked, 2 checked
 }

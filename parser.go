@@ -62,9 +62,16 @@ type Parser struct {
 	pool     sync.Pool  // *parser.BlockState, keyed to cfg
 }
 
-// New builds a Parser with the CommonMark-subset rules and no extensions: the
-// smallest thing that parses a document. Extensions live in their own modules
-// under extension/, so a binary links only the ones it names.
+// New builds the complete CommonMark 0.31.2 facade: package parser supplies the
+// built-in rules, the default HTML renderer supplies markup, and raw HTML is
+// composed through its extension capability with safe escaping. Use
+// rawhtml.WithUnsafeHTML only for trusted input that requires verbatim output.
+//
+//	import "github.com/Wenrh2004/mdflow/extension/rawhtml"
+//	trusted := mdflow.New(rawhtml.WithUnsafeHTML())
+//
+// Flavour syntax remains opt-in. In particular, task lists belong to GFM and
+// are not part of the core parser vocabulary.
 //
 // To add capabilities, compose the layers directly or use the umbrella `all`
 // module for the full set:
@@ -73,11 +80,12 @@ type Parser struct {
 //	p := mdflow.New(mdflow.WithExtensions(gfm.GFM))
 //
 //	import "github.com/Wenrh2004/mdflow/all"
-//	p := all.New() // CommonMark + every bundled extension
+//	p := all.New() // CommonMark + bundled GFM and Memos extensions
 func New(opts ...Option) *Parser { return NewBuilder().With(opts...).Build() }
 
 // NewWith builds a Parser from an explicit parser/renderer pair and only the
-// extensions named. Use it when the default syntax set is more than you want.
+// extensions named. parser.New intentionally omits raw HTML, so an explicit
+// profile that needs complete CommonMark must include rawhtml.RawHTML.
 func NewWith(p *parser.RuleSet, r renderer.Renderer, exts ...extension.Extension) *Parser {
 	return NewBuilder().Rules(p).Renderer(r).Only(exts...).Build()
 }
@@ -164,4 +172,7 @@ func (p *Parser) borrow() *parser.BlockState {
 	return bp
 }
 
-func (p *Parser) release(bp *parser.BlockState) { p.pool.Put(bp) }
+func (p *Parser) release(bp *parser.BlockState) {
+	bp.Reset(p.cfg.Rules)
+	p.pool.Put(bp)
+}

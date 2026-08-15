@@ -13,10 +13,10 @@ import (
 
 // defaultParser is built on first use, not at init.
 //
-// A package-level `= New()` would construct the full rule set and every
-// capability's renderer registrations in any binary that imports this package,
-// including one that only ever calls NewWith with a handful of extensions and
-// never touches these three functions.
+// A package-level `= New()` would construct the complete CommonMark rule set
+// and its safe raw-HTML renderer registrations in any binary that imports this
+// package, including one that only ever calls NewWith with an explicit profile
+// and never touches these three functions.
 var defaultParser = sync.OnceValue(func() *Parser { return New() })
 
 // HTML renders src with the default parser. Repeated calls reuse one parser, so

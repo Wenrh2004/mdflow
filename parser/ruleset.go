@@ -26,6 +26,31 @@ type LeafRule interface {
 	Open(s *BlockState, line string) bool
 }
 
+// ParagraphInterruptor is an optional capability for block rules to state
+// whether their syntax interrupts a paragraph. The block parser consults it
+// when an open container prefix is missing: a non-interrupting line may still
+// be a lazy continuation of the paragraph, while an interrupting line closes
+// the old containers and starts a new block.
+//
+// Rules without this capability are treated as non-interrupting. An extension
+// rule that can start after a missing container prefix must implement this
+// interface; the parser will not speculatively call mutating Open as a probe.
+//
+// Implementations must be pure. Open remains the operation that mutates the
+// parse state after the parser has committed to classifying the line.
+type ParagraphInterruptor interface {
+	InterruptsParagraph(line string) bool
+}
+
+// ColumnParagraphInterruptor is the column-aware counterpart to
+// ParagraphInterruptor for syntax whose decision depends on CommonMark's
+// absolute four-column tab stops. column is the zero-based visual column where
+// line begins. Implementations must remain pure; this capability exists because
+// the mutating BlockState is deliberately absent from interruption probes.
+type ColumnParagraphInterruptor interface {
+	InterruptsParagraphAt(line string, column int) bool
+}
+
 // InlineRule parses one inline construct.
 type InlineRule interface {
 	Name() string
@@ -38,7 +63,7 @@ type InlineRule interface {
 
 // inlinePost is whole-sequence inline post-processing (emphasis pairing).
 type inlinePost interface {
-	process(items []inlineItem) []inlineItem
+	process(state *InlineState) int
 }
 
 // ---- RuleSet ----
@@ -70,12 +95,14 @@ type Continuation func(s *BlockState, line string) bool
 // author never writes the any or the assertion themselves.
 type finalise func(s *BlockState, lines []string, scratch any)
 
-// New builds a RuleSet with the CommonMark-subset rules registered.
+// New builds a RuleSet with the built-in CommonMark 0.31.2 rules registered,
+// including indented code, reference definitions and reference links/images.
+// Raw HTML is intentionally absent: it is implemented through the public
+// extension seam and composed by mdflow.New so this parser layer stays
+// HTML-blind.
 //
-// GFM and Memos-flavoured syntax is deliberately absent here; it lives in
-// package extension, so this package stays the smallest thing that can parse a
-// document. The one exception is the task-list marker, which is a few lines
-// inside the list rule and not worth a hook.
+// GFM and Memos-flavoured syntax is also absent. In particular, task lists are
+// owned entirely by the GFM extension rather than the core rule set.
 func New() *RuleSet {
 	c := &RuleSet{
 		paragraph:  paragraphRule{},
@@ -94,13 +121,17 @@ func New() *RuleSet {
 	c.AddLeafRule(thematicBreakRule{})
 	c.AddLeafRule(atxHeadingRule{})
 	c.AddLeafRule(fenceRule{})
+	c.AddLeafRule(indentedCodeRule{})
 
 	// Inline rules. Within one trigger byte, registration order is priority.
 	c.AddInlineRule(escapeRule{})
+	c.AddInlineRule(entityRule{})
 	c.AddInlineRule(codeSpanRule{})
 	c.AddInlineRule(hardBreakRule{})
+	c.AddInlineRule(softBreakRule{})
 	c.AddInlineRule(imageRule{})
 	c.AddInlineRule(linkRule{})
+	c.AddInlineRule(linkCloseRule{})
 	c.AddInlineRule(autolinkRule{})
 	c.AddInlineRule(emphasisRule{})
 	c.inline.post = []inlinePost{emphasisPost{}}
@@ -201,7 +232,7 @@ func (c *RuleSet) ParseInline(leaf token.Leaf) []token.Inline {
 	}
 	switch leaf.Node {
 	case token.Heading, token.Paragraph, token.CustomLeaf:
-		return c.inline.Parse(leaf.Content)
+		return c.inline.ParseContext(leaf.Content, leaf.Context)
 	}
 	return nil
 }

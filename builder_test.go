@@ -5,6 +5,7 @@ import (
 
 	"github.com/Wenrh2004/mdflow"
 	"github.com/Wenrh2004/mdflow/extension"
+	internalrawhtml "github.com/Wenrh2004/mdflow/internal/rawhtml"
 	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/renderer/html"
@@ -49,6 +50,12 @@ func TestOptionsAreOrderIndependent(t *testing.T) {
 			mdflow.New(mdflow.WithExtensions(testCap), mdflow.WithRenderer(html.NewRenderer())),
 			mdflow.New(mdflow.WithRenderer(html.NewRenderer()), mdflow.WithExtensions(testCap)),
 			"@@gone@@\n",
+		},
+		{
+			"unsafe output then only raw HTML",
+			mdflow.New(mdflow.WithOutput(internalrawhtml.UnsafeHTML), mdflow.WithOnly(internalrawhtml.RawHTML)),
+			mdflow.New(mdflow.WithOnly(internalrawhtml.RawHTML), mdflow.WithOutput(internalrawhtml.UnsafeHTML)),
+			"<i>trusted</i>\n",
 		},
 	}
 	for _, tc := range cases {
@@ -95,6 +102,36 @@ func TestBuilderOnlyReplacesDefaults(t *testing.T) {
 	q := mdflow.NewBuilder().Only(testCap).Build()
 	if got, want := q.HTML("@@gone@@\n"), "<p><test>gone</test></p>\n"; got != want {
 		t.Errorf("Only(testCap) should turn it on: got %q want %q", got, want)
+	}
+}
+
+// A Builder configures copies of caller-supplied components. Otherwise a
+// trusted parser can overwrite the raw-HTML handlers of an already-built safe
+// parser, and a rule set once given the default profile can make a later
+// WithOnly() parser retain raw-HTML syntax it did not request.
+func TestBuildDoesNotMutateSuppliedComponents(t *testing.T) {
+	rules := parser.New()
+	renderer := html.NewRenderer()
+
+	safe := mdflow.New(mdflow.WithRules(rules), mdflow.WithRenderer(renderer))
+	_ = mdflow.New(
+		mdflow.WithRules(rules),
+		mdflow.WithRenderer(renderer),
+		mdflow.WithOutput(internalrawhtml.UnsafeHTML),
+	)
+
+	const src = "<script>alert(1)</script>\n"
+	if got, want := safe.HTML(src), "&lt;script&gt;alert(1)&lt;/script&gt;\n"; got != want {
+		t.Fatalf("a later trusted parser changed an existing safe parser\n got: %q\nwant: %q", got, want)
+	}
+
+	only := mdflow.New(
+		mdflow.WithRules(rules),
+		mdflow.WithRenderer(renderer),
+		mdflow.WithOnly(),
+	)
+	if got, want := only.HTML("<div>\nx\n\n"), "<p>&lt;div&gt;\nx</p>\n"; got != want {
+		t.Fatalf("caller-owned state leaked through WithOnly()\n got: %q\nwant: %q", got, want)
 	}
 }
 

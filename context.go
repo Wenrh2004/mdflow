@@ -100,10 +100,11 @@ func (p *Parser) renderToContext(ctx context.Context, w renderer.Writer, src str
 func (p *Parser) renderDirectContext(ctx context.Context, w renderer.Writer, src string) error {
 	bp := p.borrow()
 	defer p.release(bp)
-	render := func(events []token.BlockEvent) {
-		for i := range events {
-			p.writeEvent(w, events[i])
-		}
+	driver := documentDriver{blocks: bp}
+	defer driver.Release()
+	render := func(ev token.BlockEvent, inlines []token.Inline) bool {
+		p.writeDocumentEvent(w, ev, inlines)
+		return true
 	}
 	var (
 		n    int
@@ -117,13 +118,12 @@ func (p *Parser) renderDirectContext(ctx context.Context, w renderer.Writer, src
 			}
 		}
 		n++
-		render(bp.FeedLine(line))
-		return true
+		return driver.FeedLine(line, render)
 	})
 	if cerr != nil {
 		return cerr
 	}
-	render(bp.CloseAll())
+	driver.Close(render)
 	return ctx.Err()
 }
 
@@ -133,6 +133,11 @@ func (p *Parser) rawEventsContext(ctx context.Context, src string) iter.Seq[Even
 	return func(yield func(Event) bool) {
 		bp := p.borrow()
 		defer p.release(bp)
+		driver := documentDriver{blocks: bp}
+		defer driver.Release()
+		emit := func(ev token.BlockEvent, inlines []token.Inline) bool {
+			return p.emitDocumentEvent(ev, inlines, yield)
+		}
 		ok := true
 		n := 0
 		parser.EachLine(src, func(line string) bool {
@@ -141,11 +146,11 @@ func (p *Parser) rawEventsContext(ctx context.Context, src string) iter.Seq[Even
 				return false
 			}
 			n++
-			ok = p.emitBlockEvents(bp.FeedLine(line), yield)
+			ok = driver.FeedLine(line, emit)
 			return ok
 		})
 		if ok {
-			p.emitBlockEvents(bp.CloseAll(), yield)
+			driver.Close(emit)
 		}
 	}
 }
@@ -163,13 +168,14 @@ func (p *Parser) renderParallelContext(ctx context.Context, w renderer.Writer, s
 	defer p.release(bp)
 
 	events := bp.CollectAll(src)
+	bp.SealReferences()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	n := min(p.workers, len(events))
 	if n <= 1 {
 		for i := range events {
-			p.writeEvent(w, events[i])
+			p.writeFinalEvent(w, bp, events[i])
 		}
 		return ctx.Err()
 	}
@@ -194,7 +200,7 @@ func (p *Parser) renderParallelContext(ctx context.Context, w renderer.Writer, s
 			b := &bufs[i]
 			b.Grow(reserve)
 			for j := lo; j < hi; j++ {
-				p.writeEvent(b, events[j])
+				p.writeFinalEvent(b, bp, events[j])
 			}
 		}(i, lo, hi)
 	}

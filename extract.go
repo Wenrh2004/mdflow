@@ -58,6 +58,8 @@ func collectText(seq iter.Seq[Event]) string {
 			}
 		case (e.Type == TextEvent || e.Type == CodeEvent) && !inCode:
 			b.WriteString(e.Text)
+		case e.Type == EnterEvent && (e.Node == token.SoftBreak || e.Node == token.HardBreak) && !inCode:
+			b.WriteByte('\n')
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -86,6 +88,8 @@ func collectHeadings(seq iter.Seq[Event]) []Heading {
 			open = false
 		case open && (e.Type == TextEvent || e.Type == CodeEvent):
 			buf.WriteString(e.Text)
+		case open && e.Type == EnterEvent && (e.Node == token.SoftBreak || e.Node == token.HardBreak):
+			buf.WriteByte('\n')
 		}
 	}
 	return out

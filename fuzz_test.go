@@ -3,6 +3,7 @@ package mdflow_test
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Wenrh2004/mdflow"
 )
@@ -29,6 +30,7 @@ var fuzzSeeds = []string{
 	"unterminated `code span\n",
 	"###### h6\n",
 	"---\n",
+	"\x84\x00&amp;\n",
 }
 
 // FuzzHTML asserts two invariants over arbitrary input: rendering never panics,
@@ -80,28 +82,11 @@ func FuzzStreamMatchesBatch(f *testing.F) {
 	})
 }
 
-// textArtefacts are the bytes the text renderer may emit that were not in the
-// input. Two classes, both structure rather than invented content:
-//
-//   - Framing the renderer adds: a newline separates blocks, and a list item is
-//     prefixed with a marker ("- ", "[ ] " or "[x] "), contributing '-', ' ',
-//     '[', ']' and 'x'.
-//   - The parser's internal hard-break spelling: the block layer rewrites a
-//     trailing-space hard break into a backslash before inline structure is
-//     known. It is normally re-consumed by the hard-break rule, but inside a
-//     multi-line code span it surfaces literally — a documented, pre-existing
-//     limitation of this CommonMark *subset* (see the code-span note in doc.go),
-//     not content invention. So '\' is allowed too.
-//
-// Everything outside this set — any letter, digit or other punctuation not in
-// the source — would mean text extraction invented document content, which it
-// must never do. That is the property this fuzzer guards.
-const textArtefacts = "\n- []x\\"
-
-// FuzzText fuzzes the plain-text extraction path: it must never panic, and every
-// output byte must be either input content or one of the structural artefacts
-// the renderer is allowed to add (see textArtefacts). An invented byte outside
-// that set fails the fuzzer.
+// FuzzText fuzzes the plain-text extraction path. CommonMark source
+// normalisation may replace invalid UTF-8/NUL with U+FFFD, and entity decoding
+// may emit Unicode bytes not literally present in the source, so byte-provenance
+// is not a valid invariant. The actual boundary is that extraction is always
+// valid UTF-8, never leaks U+0000, and the []byte bridge is transparent.
 func FuzzText(f *testing.F) {
 	for _, s := range fuzzSeeds {
 		f.Add(s)
@@ -109,15 +94,14 @@ func FuzzText(f *testing.F) {
 	p := mdflow.New()
 	f.Fuzz(func(t *testing.T, src string) {
 		out := p.Text(src)
-		for i := 0; i < len(out); i++ {
-			c := out[i]
-			if strings.IndexByte(textArtefacts, c) >= 0 {
-				continue
-			}
-			if strings.IndexByte(src, c) < 0 {
-				t.Errorf("Text introduced byte %q not in input or artefacts\n src: %q\n out: %q", c, src, out)
-				break
-			}
+		if !utf8.ValidString(out) {
+			t.Errorf("Text returned invalid UTF-8\n src: %q\n out: %q", src, out)
+		}
+		if strings.IndexByte(out, 0) >= 0 {
+			t.Errorf("Text leaked U+0000\n src: %q\n out: %q", src, out)
+		}
+		if bytes := p.TextBytes([]byte(src)); bytes != out {
+			t.Errorf("TextBytes disagrees with Text\n src: %q\n str: %q\nbytes: %q", src, out, bytes)
 		}
 	})
 }

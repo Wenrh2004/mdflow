@@ -16,6 +16,7 @@ require (
 	github.com/Wenrh2004/mdflow/extension/resource v0.0.0 // indirect
 	github.com/Wenrh2004/mdflow/extension/strikethrough v0.0.0 // indirect
 	github.com/Wenrh2004/mdflow/extension/table v0.0.0 // indirect
+	github.com/Wenrh2004/mdflow/extension/tasklist v0.0.0 // indirect
 	github.com/Wenrh2004/mdflow/extension/typography v0.0.0 // indirect
 )
 
@@ -30,6 +31,8 @@ replace github.com/Wenrh2004/mdflow/extension/rawhtml => ../extension/rawhtml
 replace github.com/Wenrh2004/mdflow/extension/table => ../extension/table
 
 replace github.com/Wenrh2004/mdflow/extension/strikethrough => ../extension/strikethrough
+
+replace github.com/Wenrh2004/mdflow/extension/tasklist => ../extension/tasklist
 
 replace github.com/Wenrh2004/mdflow/extension/math => ../extension/math
 

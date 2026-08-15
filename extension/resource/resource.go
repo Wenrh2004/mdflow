@@ -46,6 +46,25 @@ func IsResource(e mdflow.Event) bool {
 
 // ---- inline: [[reference]] ----
 
+// referenceScanTag keys the per-parse memo below. It is a private tag used only
+// as a memo slot key, never emitted or rendered.
+var referenceScanTag = token.NewTag("resource.reference.scan")
+
+// referenceScanMemo caches the offset from which the remaining source is known
+// to contain no closing "]]". A run of unmatched "[[" would otherwise rescan the
+// tail from every position, which is O(n^2); once one probe proves the tail has
+// no close, every later probe inside that tail is a constant-time reject. It is
+// per-parse scratch obtained through [parser.InlineState.Memo]; CloneInlineMemo
+// keeps Stream.Provisional snapshots isolated from the live parse.
+type referenceScanMemo struct {
+	noCloseFrom int // smallest offset proven to hold no "]]"; -1 when unknown
+}
+
+func (m *referenceScanMemo) CloneInlineMemo() parser.InlineMemo {
+	clone := *m
+	return &clone
+}
+
 // referenceRule handles `[[resource]]` and `[[resource?params]]`.
 type referenceRule struct{}
 
@@ -56,11 +75,28 @@ func (referenceRule) Match(s *parser.InlineState) bool {
 	if !strings.HasPrefix(src[i:], "[[") {
 		return false
 	}
-	end := strings.Index(src[i+2:], "]]")
-	if end <= 0 {
+	start := i + 2
+	memo := s.Memo(referenceScanTag, func() parser.InlineMemo {
+		return &referenceScanMemo{noCloseFrom: -1}
+	}).(*referenceScanMemo)
+	// Src is immutable and the scan offset only advances, so once some suffix is
+	// known to have no "]]", every later "[[" inside it cannot either.
+	if memo.noCloseFrom >= 0 && start >= memo.noCloseFrom {
+		s.AddWork(1)
 		return false
 	}
-	name, params := splitResource(src[i+2 : i+2+end])
+	rest := src[start:]
+	end := strings.Index(rest, "]]")
+	if end < 0 {
+		s.AddWork(len(rest)) // report the scanned span to the work seam
+		memo.noCloseFrom = start
+		return false
+	}
+	s.AddWork(end + 2)
+	if end == 0 {
+		return false
+	}
+	name, params := splitResource(src[start : start+end])
 	s.Emit(token.Inline{Node: token.Custom, Tag: referenceTag, Text: name, Dest: params})
 	s.Advance(end + 4)
 	return true
@@ -72,14 +108,26 @@ func (referenceRule) Match(s *parser.InlineState) bool {
 type embedRule struct{}
 
 func (embedRule) Name() string { return "embed" }
+func (embedRule) InterruptsParagraph(line string) bool {
+	_, _, ok := parseEmbed(line)
+	return ok
+}
 func (embedRule) Open(s *parser.BlockState, line string) bool {
-	t := strings.TrimSpace(line)
-	if !strings.HasPrefix(t, "![[") || !strings.HasSuffix(t, "]]") || len(t) < 5 {
+	name, params, ok := parseEmbed(line)
+	if !ok {
 		return false
 	}
-	name, params := splitResource(t[3 : len(t)-2])
 	s.EmitLeaf(token.Leaf{Node: token.CustomLeaf, Tag: embedTag, Content: name, Info: params, Literal: true})
 	return true
+}
+
+func parseEmbed(line string) (name, params string, ok bool) {
+	t := strings.TrimSpace(line)
+	if !strings.HasPrefix(t, "![[") || !strings.HasSuffix(t, "]]") || len(t) < 5 {
+		return "", "", false
+	}
+	name, params = splitResource(t[3 : len(t)-2])
+	return name, params, true
 }
 
 // splitResource splits `name?params` as gomark's resource syntax does.

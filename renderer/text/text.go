@@ -72,7 +72,7 @@ func (r Renderer) RenderLeaf(w renderer.Writer, leaf token.Leaf, inlines []token
 
 // RenderContainer writes a container's plain-text framing. Blockquotes and lists
 // contribute no glyphs of their own; a list item is marked so items read as a
-// list, and a task item keeps its checkbox as text.
+// list. Extension markers remain inline content and use their own fallback.
 func (Renderer) RenderContainer(w renderer.Writer, ev token.BlockEvent) {
 	if ev.Type != token.OpenBlock {
 		// A list closes with a blank line so the next block stands apart; other
@@ -83,14 +83,7 @@ func (Renderer) RenderContainer(w renderer.Writer, ev token.BlockEvent) {
 		return
 	}
 	if ev.Container == token.ListItem {
-		switch ev.Task {
-		case 1:
-			w.WriteString("[ ] ")
-		case 2:
-			w.WriteString("[x] ")
-		default:
-			w.WriteString("- ")
-		}
+		w.WriteString("- ")
 	}
 }
 
@@ -102,7 +95,7 @@ func (Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 		switch t.Node {
 		case token.Text, token.CodeSpan:
 			w.WriteString(t.Text)
-		case token.HardBreak:
+		case token.SoftBreak, token.HardBreak:
 			w.WriteByte('\n')
 		case token.Custom:
 			// Only the opening token carries text; the closing one is empty and

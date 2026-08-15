@@ -18,11 +18,13 @@
 // disguise: an extension configures output through the capability interfaces in
 // package renderer, never by reaching for the concrete HTML renderer. A new
 // output format is a new Renderer; new syntax is a new capability. Neither
-// touches the other, and the core imports no extension at all — a binary links
-// exactly the capabilities it names.
+// touches the other. The parser and token layers do not depend on public
+// extensions; the mdflow facade deliberately composes the internal raw-HTML
+// capability into its default CommonMark profile.
 //
-// Use [New] for the CommonMark subset, [NewBuilder] to add capabilities, or the
-// umbrella `all` module for the full syntax set:
+// Use [New] for complete CommonMark 0.31.2, [NewBuilder] to add capabilities,
+// or the umbrella `all` module for CommonMark plus every bundled GFM and Memos
+// extension:
 //
 //	import "github.com/Wenrh2004/mdflow/all"
 //	html := all.New().HTML(src)
@@ -35,16 +37,20 @@
 // is why the vocabulary package is called token and not ast.
 //
 // Line-driven and incremental. The block state machine never revisits a closed
-// block, so feeding a document in chunks costs the same as parsing it whole.
-// That is what makes [Parser.Stream] O(n) where re-parsing on every chunk — the
-// usual approach in a chat UI — is O(n²).
+// block. An unresolved reference pauses only its resumable inline cursor and
+// the suffix behind it until a later definition arrives or end of input seals
+// the definition map; it does not cause a document prepass or reparse. That is
+// what keeps [Parser.Stream] O(n), where re-parsing on every chunk — the usual
+// approach in a chat UI — is O(n²).
 //
 // Rules, not switches. Block and inline syntax live in registries — container,
 // leaf and inline rules in package parser — and output lives behind a Renderer,
 // so new syntax and new output formats are additions rather than forks.
-// Everything past CommonMark (GFM tables, math, hashtags, typography, wiki
-// resources) is registered through that seam, on the same footing as syntax you
-// add yourself: the core vocabulary names none of it.
+// Flavour syntax past CommonMark (GFM tables and task lists, math, hashtags,
+// typography, wiki resources) is registered through that seam, on the same
+// footing as syntax you add yourself: the core vocabulary names none of it.
+// CommonMark raw HTML uses the same architecture and is composed safely by the
+// facade rather than built into package parser.
 //
 // # Basic use
 //
@@ -95,33 +101,34 @@
 //
 // # Parallelism
 //
-// Block structure is inherently sequential, but inline parsing of a closed leaf
-// depends on nothing outside that leaf, so phase two distributes.
-// [Parser.Workers] fans it across cores — 1.45x at 175 KiB, 2.0x at 2 MiB, for
-// +5-23% memory. It is opt-in, and falls back to sequential below 16 KiB or
-// when a middleware chain is installed. See [Parser.Workers] for the measured
-// trade-off.
+// Block structure is inherently sequential. Once that phase is complete and
+// reference definitions are sealed, inline parsing uses one immutable resolver
+// and can distribute across closed leaves. [Parser.Workers] fans it across
+// cores — 1.45x at 175 KiB, 2.0x at 2 MiB, for +5-23% memory. It is opt-in, and
+// falls back to sequential below 16 KiB or when a middleware chain is installed.
+// See [Parser.Workers] for the measured trade-off.
 //
 // # Supported syntax
 //
-// The core is a CommonMark subset: ATX and setext headings, paragraphs, fenced
-// code, blockquotes, ordered/unordered lists, task lists, thematic breaks,
-// emphasis, strong, inline code, links, images, autolinks, hard breaks and
-// backslash escapes.
+// [New] implements complete CommonMark 0.31.2, including indented and fenced
+// code, reference links and images, entities and tabs, lazy continuation,
+// tight/loose lists, and raw HTML blocks and inlines. The official trusted-input
+// conformance suite is pinned at 652/652 examples. Raw HTML is supplied through
+// an extension capability and escaped by default; trusted documents can opt
+// into verbatim output explicitly:
 //
-// The common GFM and Memos-flavoured extensions — tables, strikethrough, math
-// blocks, embeds, inline math, hashtags, highlight, subscript, superscript,
-// spoilers, references and inline raw HTML — each live in a module under
-// extension/, and the `all` module bundles the full set. Raw HTML is recognised
-// but escaped on output unless the rawhtml extension's WithUnsafeHTML is set.
+//	import "github.com/Wenrh2004/mdflow/extension/rawhtml"
+//	trusted := mdflow.New(rawhtml.WithUnsafeHTML())
 //
-// Deliberately absent from the core: indented code blocks, reference links, raw
-// HTML blocks and footnotes. See README.md for the reasoning and the full
-// compliance notes.
+// The safe default covers raw HTML only. Link and image URI schemes are not
+// filtered by default — javascript:, data: and vbscript: destinations pass
+// through as written, and because destinations are entity-decoded before output
+// an obfuscated java&#115;cript: reaches the renderer as javascript: too. Pass
+// [WithSafeLinks] to filter destinations to an http/https/mailto/tel/relative
+// allowlist when rendering untrusted input.
 //
-// One known edge: a hard break spelled as two trailing spaces is normalised at
-// the line-based block layer before inline structure is known, so when such a
-// line falls inside a code span that spans a newline, a literal backslash
-// surfaces in the span instead of the space CommonMark specifies. It is a corner
-// of the subset, not content invention, and is guarded by FuzzText.
+// GFM tables, strikethrough and task lists, and the Memos math, hashtag,
+// typography and wiki-resource syntax live under extension/. Task lists are
+// entirely GFM syntax rather than a core node kind. Package `all` bundles those
+// flavours on top of the complete CommonMark profile.
 package mdflow

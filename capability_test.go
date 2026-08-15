@@ -125,6 +125,23 @@ func TestRegistrationReportsCapability(t *testing.T) {
 	}
 }
 
+func TestVoidElementClosingIsAFunctionalCapability(t *testing.T) {
+	var out strings.Builder
+	if renderer.CloseVoidElement(&coreRenderer{}, &out) {
+		t.Fatal("core-only renderer reported a void-element convention")
+	}
+
+	h := html.NewRenderer()
+	if !renderer.CloseVoidElement(h, &out) || out.String() != " />" {
+		t.Fatalf("XHTML void close = %q", out.String())
+	}
+	out.Reset()
+	h.XHTML = false
+	if !renderer.CloseVoidElement(h, &out) || out.String() != ">" {
+		t.Fatalf("HTML5 void close = %q", out.String())
+	}
+}
+
 // Content preservation: a custom inline node whose rendering was never
 // registered must still emit its text. Dropping the node entirely would delete
 // the author's prose to punish a configuration mistake.
