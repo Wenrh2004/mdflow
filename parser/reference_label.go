@@ -10,14 +10,14 @@ import (
 // normalizeReferenceLabel implements CommonMark reference-label matching:
 // ASCII space, tab, CR, and LF runs collapse to one space after trimming, then
 // Unicode's default full case fold is applied. It deliberately performs no
-// Unicode normalization; canonically equivalent spellings remain distinct.
+// Unicode normalisation; canonically equivalent spellings remain distinct.
 func normalizeReferenceLabel(label string) string {
 	if isASCIIString(label) {
 		return normalizeASCIIReferenceLabel(label)
 	}
 
-	var normalized strings.Builder
-	normalized.Grow(len(label))
+	var out strings.Builder
+	out.Grow(len(label))
 	spacePending := false
 	wrote := false
 	for len(label) > 0 {
@@ -28,13 +28,13 @@ func normalizeReferenceLabel(label string) string {
 			continue
 		}
 		if spacePending {
-			normalized.WriteByte(' ')
+			out.WriteByte(' ')
 			spacePending = false
 		}
-		writeFullCaseFold(&normalized, r)
+		writeFullCaseFold(&out, r)
 		wrote = true
 	}
-	return normalized.String()
+	return out.String()
 }
 
 func isASCIIString(s string) bool {
@@ -51,8 +51,8 @@ func normalizeASCIIReferenceLabel(label string) string {
 		return label
 	}
 
-	var normalized strings.Builder
-	normalized.Grow(len(label))
+	var out strings.Builder
+	out.Grow(len(label))
 	spacePending := false
 	wrote := false
 	for i := 0; i < len(label); i++ {
@@ -62,16 +62,16 @@ func normalizeASCIIReferenceLabel(label string) string {
 			continue
 		}
 		if spacePending {
-			normalized.WriteByte(' ')
+			out.WriteByte(' ')
 			spacePending = false
 		}
 		if 'A' <= c && c <= 'Z' {
 			c += 'a' - 'A'
 		}
-		normalized.WriteByte(c)
+		out.WriteByte(c)
 		wrote = true
 	}
-	return normalized.String()
+	return out.String()
 }
 
 func asciiReferenceLabelIsNormalized(label string) bool {

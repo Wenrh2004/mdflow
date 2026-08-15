@@ -12,7 +12,7 @@ func TestNormalizeReferenceLabelASCII(t *testing.T) {
 		{name: "all label whitespace", in: " \t\r\n ", want: ""},
 		{name: "collapse every ASCII label whitespace", in: "foo\t \r\nbar", want: "foo bar"},
 		{name: "preserve other ASCII control bytes", in: "foo\vbar", want: "foo\vbar"},
-		{name: "already normalized", in: "foo bar", want: "foo bar"},
+		{name: "already normalised", in: "foo bar", want: "foo bar"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -55,13 +55,13 @@ func TestNormalizeReferenceLabelDoesNotNormalizeUnicode(t *testing.T) {
 		t.Fatalf("decomposed spelling changed to %q", decomposed)
 	}
 	if composed == decomposed {
-		t.Fatal("normalization unexpectedly made canonically equivalent spellings equal")
+		t.Fatal("normalisation unexpectedly made canonically equivalent spellings equal")
 	}
 }
 
 func TestNormalizeReferenceLabelNormalizedASCIIDoesNotAllocate(t *testing.T) {
 	if got := testing.AllocsPerRun(100, func() {
-		_ = normalizeReferenceLabel("already normalized")
+		_ = normalizeReferenceLabel("already normalised")
 	}); got != 0 {
 		t.Fatalf("allocations = %v, want 0", got)
 	}

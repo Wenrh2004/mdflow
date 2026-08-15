@@ -61,7 +61,7 @@ func (d *documentDriver) FeedLine(line string, emit documentEmitter) bool {
 }
 
 // Blocked reports whether the driver is currently withholding output behind an
-// unresolved shortcut reference, and the normalized label it waits on.
+// unresolved shortcut reference, and the normalised label it waits on.
 func (d *documentDriver) Blocked() (string, bool) {
 	if d.cursor == nil {
 		return "", false
