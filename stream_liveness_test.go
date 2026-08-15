@@ -7,7 +7,7 @@ import (
 	"github.com/Wenrh2004/mdflow"
 )
 
-// Blocked reports the normalized label a stream is currently withholding output
+// Blocked reports the normalised label a stream is currently withholding output
 // behind, and clears once a matching definition arrives.
 func TestStreamBlockedReportsPendingLabel(t *testing.T) {
 	p := mdflow.New()

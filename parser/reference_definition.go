@@ -7,9 +7,9 @@ import (
 
 const maxReferenceLabelRunes = 999
 
-// referenceDefinition is the syntax payload stored for a normalized link
+// referenceDefinition is the syntax payload stored for a normalised link
 // label. The block parser decides where definitions are allowed; this file
-// only recognizes a definition at the beginning of the supplied source.
+// only recognises a definition at the beginning of the supplied source.
 type referenceDefinition struct {
 	destination string
 	title       string
@@ -82,7 +82,7 @@ func (r *referenceResolver) clone() referenceResolver {
 	return cloned
 }
 
-// scanReferenceDefinition recognizes one CommonMark link reference
+// scanReferenceDefinition recognises one CommonMark link reference
 // definition. end excludes the terminating line ending, so a block driver can
 // choose whether that line ending belongs to the definition or to its input
 // framing.
@@ -136,7 +136,7 @@ func scanReferenceDefinition(src string) (label string, definition referenceDefi
 }
 
 // scanReferenceDefinitionPrefix removes the maximal leading run of reference
-// definitions and registers each one. Duplicate normalized labels are still
+// definitions and registers each one. Duplicate normalised labels are still
 // consumed, but the resolver keeps the first definition.
 func scanReferenceDefinitionPrefix(src string, resolver *referenceResolver) int {
 	consumed := 0
@@ -170,7 +170,7 @@ func scanReferenceDefinitionLabel(src string, start int) (label string, end int,
 	return src[labelStart:labelEnd], labelEnd + 1, true
 }
 
-// normalizeReferenceCandidate validates a complete label body and normalizes
+// normalizeReferenceCandidate validates a complete label body and normalises
 // it once. A pending inline cursor retains this key, so unrelated definitions
 // only cost one map lookup when the cursor resumes.
 func normalizeReferenceCandidate(content string) (string, bool) {

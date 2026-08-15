@@ -16,12 +16,12 @@ func TestSafeLinksNeutralisesDangerousSchemes(t *testing.T) {
 
 	cases := []string{
 		"[x](javascript:alert(1))",
-		"[x](java&#115;cript:alert(1))",   // entity-obfuscated 's'
-		"[x](&#106;avascript:alert(1))",   // entity-obfuscated 'j'
-		"[x](javascript&#58;alert(1))",    // entity-obfuscated ':'
-		"[x](JaVaScRiPt:alert(1))",        // case trick
-		"![x](javascript:alert(1))",       // image
-		"<javascript:alert(1)>",           // autolink
+		"[x](java&#115;cript:alert(1))", // entity-obfuscated 's'
+		"[x](&#106;avascript:alert(1))", // entity-obfuscated 'j'
+		"[x](javascript&#58;alert(1))",  // entity-obfuscated ':'
+		"[x](JaVaScRiPt:alert(1))",      // case trick
+		"![x](javascript:alert(1))",     // image
+		"<javascript:alert(1)>",         // autolink
 		"[x](vbscript:msgbox(1))",
 		"[x](data:text/html,<b>hi</b>)",
 	}

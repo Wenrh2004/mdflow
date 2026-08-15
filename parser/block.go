@@ -385,7 +385,7 @@ func continueContainer(c *container, line blockLine) (blockLine, bool) {
 		if line.leadingIndent() < c.indent {
 			return line, false
 		}
-		rest, _ := line.consumeIndent(c.indent)
+		rest := line.consumeIndent(c.indent)
 		return rest, true
 	}
 	return line, true
@@ -561,14 +561,14 @@ func (s *BlockState) startIndentedCode(line blockLine) {
 }
 
 func (s *BlockState) appendIndentedLine(line blockLine) {
-	rest, _ := line.consumeIndent(4)
+	rest := line.consumeIndent(4)
 	s.leaf.lines = append(s.leaf.lines, rest.Text())
 	s.leaf.pendingBlank = 0
 	s.leaf.blankFrom = -1
 }
 
 func (s *BlockState) appendIndentedBlank(line blockLine, blankFrom int) {
-	rest, _ := line.consumeIndent(4)
+	rest := line.consumeIndent(4)
 	s.leaf.lines = append(s.leaf.lines, rest.Text())
 	s.leaf.pendingBlank++
 	if s.leaf.blankFrom < 0 || blankFrom >= 0 && blankFrom < s.leaf.blankFrom {
@@ -936,7 +936,7 @@ func (s *BlockState) isClosingFence(line blockLine) bool {
 	if ind > 3 {
 		return false
 	}
-	rest, _ := line.consumeIndent(ind)
+	rest := line.consumeIndent(ind)
 	r := rest.trimRightSpaceTab()
 	if len(r) < s.leaf.fenceLen {
 		return false
@@ -1198,22 +1198,9 @@ func isBlankLine(s string) bool {
 	return true
 }
 
-func leadingSpaces(s string) int {
-	return newBlockLine(s).leadingIndent()
-}
-
-func stripIndent(s string, n int) string {
-	return stripIndentLine(newBlockLine(s), n)
-}
-
 func stripIndentLine(line blockLine, columns int) string {
-	rest, _ := line.consumeIndent(columns)
+	rest := line.consumeIndent(columns)
 	return rest.Text()
-}
-
-func stripBlockquoteMarker(s string) (string, bool) {
-	rest, ok := stripBlockquoteMarkerLine(newBlockLine(s))
-	return rest.Text(), ok
 }
 
 func stripBlockquoteMarkerLine(line blockLine) (blockLine, bool) {
@@ -1221,13 +1208,13 @@ func stripBlockquoteMarkerLine(line blockLine) (blockLine, bool) {
 	if ind > 3 {
 		return line, false
 	}
-	rest, _ := line.consumeIndent(ind)
+	rest := line.consumeIndent(ind)
 	var ok bool
 	if rest, ok = rest.consumeByte('>'); !ok {
 		return line, false
 	}
 	if c, exists := rest.peek(); exists && (c == ' ' || c == '\t') {
-		rest, _ = rest.consumeIndent(1)
+		rest = rest.consumeIndent(1)
 	}
 	return rest, true
 }
@@ -1241,16 +1228,12 @@ type listMarkerInfo struct {
 	rest    blockLine
 }
 
-func parseListMarker(s string) (listMarkerInfo, bool) {
-	return parseListMarkerLine(newBlockLine(s))
-}
-
 func parseListMarkerLine(line blockLine) (listMarkerInfo, bool) {
 	ind := line.leadingIndent()
 	if ind > 3 {
 		return listMarkerInfo{}, false
 	}
-	r, _ := line.consumeIndent(ind)
+	r := line.consumeIndent(ind)
 	if marker, ok := r.peek(); ok && (marker == '-' || marker == '*' || marker == '+') {
 		afterMarker, _ := r.consumeByte(marker)
 		return finishListMarker(line, afterMarker, listMarkerInfo{marker: marker})
@@ -1279,7 +1262,7 @@ func finishListMarker(original, afterMarker blockLine, info listMarkerInfo) (lis
 		// regardless of how much trailing whitespace the source contains.
 		info.blank = true
 		info.width = afterMarker.column - original.column + 1
-		info.rest, _ = afterMarker.consumeIndent(padding)
+		info.rest = afterMarker.consumeIndent(padding)
 		return info, true
 	}
 	if padding == 0 {
@@ -1288,13 +1271,9 @@ func finishListMarker(original, afterMarker blockLine, info listMarkerInfo) (lis
 	if padding > 4 {
 		padding = 1
 	}
-	info.rest, _ = afterMarker.consumeIndent(padding)
+	info.rest = afterMarker.consumeIndent(padding)
 	info.width = info.rest.column - original.column
 	return info, true
-}
-
-func isThematicBreakLine(s string) bool {
-	return isThematicBreakBlockLine(newBlockLine(s))
 }
 
 func isThematicBreakBlockLine(line blockLine) bool {
@@ -1302,7 +1281,7 @@ func isThematicBreakBlockLine(line blockLine) bool {
 	if ind > 3 {
 		return false
 	}
-	rest, _ := line.consumeIndent(ind)
+	rest := line.consumeIndent(ind)
 	s := rest.trimRightSpaceTab()
 	if s == "" {
 		return false
@@ -1327,17 +1306,13 @@ func isThematicBreakBlockLine(line blockLine) bool {
 	return count >= 3
 }
 
-// parseSetextUnderline recognises `===` (h1) and `---` (h2) underlines.
-func parseSetextUnderline(s string) (int, bool) {
-	return parseSetextUnderlineLine(newBlockLine(s))
-}
-
+// parseSetextUnderlineLine recognises `===` (h1) and `---` (h2) underlines.
 func parseSetextUnderlineLine(line blockLine) (int, bool) {
 	ind := line.leadingIndent()
 	if ind > 3 {
 		return 0, false
 	}
-	rest, _ := line.consumeIndent(ind)
+	rest := line.consumeIndent(ind)
 	r := rest.trimRightSpaceTab()
 	if r == "" {
 		return 0, false
@@ -1357,16 +1332,12 @@ func parseSetextUnderlineLine(line blockLine) (int, bool) {
 	return 2, true
 }
 
-func parseATXHeading(s string) (level int, content string, ok bool) {
-	return parseATXHeadingLine(newBlockLine(s))
-}
-
 func parseATXHeadingLine(line blockLine) (level int, content string, ok bool) {
 	ind := line.leadingIndent()
 	if ind > 3 {
 		return 0, "", false
 	}
-	rest, _ := line.consumeIndent(ind)
+	rest := line.consumeIndent(ind)
 	r := rest.Text()
 	n := 0
 	for n < len(r) && r[n] == '#' {
@@ -1389,16 +1360,12 @@ func parseATXHeadingLine(line blockLine) (level int, content string, ok bool) {
 	return n, content, true
 }
 
-func parseFenceOpen(s string) (ch byte, length, indent int, info string, ok bool) {
-	return parseFenceOpenLine(newBlockLine(s))
-}
-
 func parseFenceOpenLine(line blockLine) (ch byte, length, indent int, info string, ok bool) {
 	ind := line.leadingIndent()
 	if ind > 3 {
 		return 0, 0, 0, "", false
 	}
-	restLine, _ := line.consumeIndent(ind)
+	restLine := line.consumeIndent(ind)
 	r := restLine.Text()
 	if len(r) < 3 || (r[0] != '`' && r[0] != '~') {
 		return 0, 0, 0, "", false
