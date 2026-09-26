@@ -313,7 +313,7 @@ func (s *Stream) Close() string {
 }
 
 // Blocked reports whether the committed stream is currently withholding output
-// behind an unresolved shortcut reference, and the normalized label it waits
+// behind an unresolved shortcut reference, and the normalised label it waits
 // on. It lets a streaming UI decide whether to keep waiting, Close early, or
 // show a spinner; it is false once the reference resolves or the stream closes.
 func (s *Stream) Blocked() (label string, ok bool) {

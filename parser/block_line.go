@@ -54,7 +54,7 @@ func (l blockLine) consumeByte(want byte) (blockLine, bool) {
 }
 
 // consumeIndent consumes at most columns visual columns of spaces or tabs.
-func (l blockLine) consumeIndent(columns int) (blockLine, int) {
+func (l blockLine) consumeIndent(columns int) blockLine {
 	consumed := 0
 	for consumed < columns {
 		if l.pad > 0 {
@@ -81,10 +81,10 @@ func (l blockLine) consumeIndent(columns int) (blockLine, int) {
 				l.pad = uint8(width - take)
 			}
 		default:
-			return l, consumed
+			return l
 		}
 	}
-	return l, consumed
+	return l
 }
 
 func (l blockLine) leadingIndent() int {
@@ -111,10 +111,9 @@ func (l blockLine) leadingIndent() int {
 	}
 }
 
+// blank reports whether the remainder is whitespace only. pad is ignored: it
+// only ever stands for the leftover columns of a split tab, which are blank.
 func (l blockLine) blank() bool {
-	if l.pad > 0 {
-		l.pad = 0
-	}
 	for i := l.off; i < len(l.raw); i++ {
 		if l.raw[i] != ' ' && l.raw[i] != '\t' {
 			return false

@@ -163,14 +163,14 @@ func TestParallelReferencesUseTheSealedDocumentResolver(t *testing.T) {
 	want := p.HTML(src)
 	got := p.Workers(4).HTML(src)
 	if got != want {
-		t.Fatalf("parallel reference output differs from sequential output\n got prefix: %q\nwant prefix: %q", prefix(got, 160), prefix(want, 160))
+		t.Fatalf("parallel reference output differs from sequential output\n got prefix: %q\nwant prefix: %q", prefix(got), prefix(want))
 	}
 	if !strings.HasPrefix(got, `<p><a href="/url">foo</a></p>`+"\n") {
-		t.Fatalf("forward reference was not resolved: %q", prefix(got, 160))
+		t.Fatalf("forward reference was not resolved: %q", prefix(got))
 	}
 	got, err := p.Workers(4).HTMLContext(context.Background(), src)
 	if err != nil || got != want {
-		t.Fatalf("parallel context reference output = %q, %v; want sequential output", prefix(got, 160), err)
+		t.Fatalf("parallel context reference output = %q, %v; want sequential output", prefix(got), err)
 	}
 }
 
@@ -188,9 +188,13 @@ func TestReferenceContextDriversMatchPlain(t *testing.T) {
 	}
 }
 
-func prefix(s string, n int) string {
-	if len(s) <= n {
+// diffPrefixLen bounds how much of a mismatching stream is echoed in a failure
+// message: enough to see where the outputs diverge, short enough to stay read.
+const diffPrefixLen = 160
+
+func prefix(s string) string {
+	if len(s) <= diffPrefixLen {
 		return s
 	}
-	return s[:n]
+	return s[:diffPrefixLen]
 }

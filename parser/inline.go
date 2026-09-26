@@ -185,7 +185,7 @@ type InlineCursor struct {
 	state *InlineState
 }
 
-// Resume advances the cursor. complete is false only while the same normalized
+// Resume advances the cursor. complete is false only while the same normalised
 // reference key remains undefined and the document is still open.
 func (c *InlineCursor) Resume() (tokens []token.Inline, complete bool) {
 	if c == nil || c.state == nil {
@@ -209,7 +209,7 @@ func (c *InlineCursor) Release() {
 	c.state = nil
 }
 
-// PendingLabel returns the normalized reference label this cursor is paused on,
+// PendingLabel returns the normalised reference label this cursor is paused on,
 // and whether it is paused at all. A streaming caller uses it to report what
 // the committed stream is currently withholding output behind.
 func (c *InlineCursor) PendingLabel() (label string, ok bool) {
@@ -1528,10 +1528,6 @@ func mergeAdjacentText(in []token.Inline) []token.Inline {
 		i = end
 	}
 	return out
-}
-
-func isSpaceByte(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
 func isASCIIPunct(c byte) bool {

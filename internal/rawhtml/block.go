@@ -192,9 +192,7 @@ func blockEnds(tag token.Tag, line string) bool {
 }
 
 func startsType6(tail string) bool {
-	if strings.HasPrefix(tail, "/") {
-		tail = tail[1:]
-	}
+	tail = strings.TrimPrefix(tail, "/")
 	n := 0
 	for n < len(tail) && (isASCIIAlpha(tail[n]) || isASCIIDigit(tail[n])) {
 		n++
