@@ -26,7 +26,7 @@ import (
 // allocating per block. triggers is a bitmap of "bytes that could start an
 // inline construct", which powers the no-markup fast path.
 type InlineRules struct {
-	rules     map[byte][]InlineRule
+	rules     [256][]InlineRule // dense: indexed per input byte on the hot loop
 	post      []inlinePost
 	triggers  [256]bool
 	statePool sync.Pool
@@ -65,7 +65,7 @@ func (p *InlineRules) ParseWork(src string) ([]token.Inline, int) {
 
 func (p *InlineRules) parseContext(src string, context token.InlineContext) ([]token.Inline, int) {
 	refs := referenceResolver{sealed: true}
-	out, cursor, work := p.startContext(src, context, &refs)
+	out, cursor, work := p.startContext(nil, src, context, &refs)
 	if cursor == nil {
 		return out, work
 	}
@@ -80,6 +80,7 @@ func (p *InlineRules) parseContext(src string, context token.InlineContext) ([]t
 // definition is not known yet. Only the latter case allocates an InlineCursor;
 // ordinary leaves retain the same pooled-state fast path as Parse.
 func (p *InlineRules) startContext(
+	dst []token.Inline,
 	src string,
 	context token.InlineContext,
 	refs *referenceResolver,
@@ -93,7 +94,7 @@ func (p *InlineRules) startContext(
 		if src == "" {
 			return nil, nil, 0
 		}
-		return []token.Inline{{Node: token.Text, Text: src}}, nil, 0
+		return append(dst[:0], token.Inline{Node: token.Text, Text: src}), nil, 0
 	}
 
 	s, _ := p.statePool.Get().(*InlineState)
@@ -101,6 +102,7 @@ func (p *InlineRules) startContext(
 		s = &InlineState{parser: p}
 	}
 	s.src, s.pos, s.context, s.refs, s.items, s.text = src, 0, context, refs, s.items[:0], s.text[:0]
+	s.textFrom = -1
 	s.head, s.tail = noInlineIndex, noInlineIndex
 	s.delimiters = s.delimiters[:0]
 	s.delimiterHead, s.delimiterTail = noInlineIndex, noInlineIndex
@@ -119,7 +121,7 @@ func (p *InlineRules) startContext(
 	if !runInlineState(s) {
 		return nil, &InlineCursor{state: s}, s.work
 	}
-	out, work := finishInlineState(s)
+	out, work := finishInlineState(s, dst)
 	return out, nil, work
 }
 
@@ -127,9 +129,21 @@ func runInlineState(s *InlineState) bool {
 	if s.waiting && !s.resumePendingReference() {
 		return false
 	}
+	rules, triggers := &s.parser.rules, &s.parser.triggers
 	for s.pos < len(s.src) {
+		// Bytes no rule is registered for are literal text. Copy the whole run
+		// at once instead of consulting the rule table byte by byte.
+		if !triggers[s.src[s.pos]] {
+			end := s.pos + 1
+			for end < len(s.src) && !triggers[s.src[end]] {
+				end++
+			}
+			s.addSource(s.pos, end)
+			s.pos = end
+			continue
+		}
 		matched := false
-		for _, r := range s.parser.rules[s.src[s.pos]] {
+		for _, r := range rules[s.src[s.pos]] {
 			if r.Match(s) {
 				matched = true
 				break
@@ -139,20 +153,22 @@ func runInlineState(s *InlineState) bool {
 			return false
 		}
 		if !matched {
-			s.AddByte(s.src[s.pos])
+			s.addSource(s.pos, s.pos+1)
 			s.pos++
 		}
 	}
 	return true
 }
 
-func finishInlineState(s *InlineState) ([]token.Inline, int) {
+// finishInlineState completes a scan, flattening its tokens into dst[:0] (a
+// fresh slice when dst is nil).
+func finishInlineState(s *InlineState, dst []token.Inline) ([]token.Inline, int) {
 	s.trimTrailingWhitespace()
 	s.flush()
 	for _, pp := range s.parser.post {
 		s.work += pp.process(s)
 	}
-	out := flattenItems(s)
+	out := flattenItems(s, dst)
 	work := s.work
 	// Safe to recycle: `out`'s tokens and their strings do not alias s.items or
 	// s.text (text was copied out by flush). A recursive call during the scan
@@ -194,7 +210,7 @@ func (c *InlineCursor) Resume() (tokens []token.Inline, complete bool) {
 	if !runInlineState(c.state) {
 		return nil, false
 	}
-	tokens, _ = finishInlineState(c.state)
+	tokens, _ = finishInlineState(c.state, nil)
 	c.state = nil
 	return tokens, true
 }
@@ -306,11 +322,16 @@ type InlineState struct {
 	imageDepth    int
 	work          int
 	text          []byte // text accumulator, reused across leaves via statePool
-	context       token.InlineContext
-	memos         []inlineMemoSlot
-	refs          *referenceResolver
-	pending       pendingReference
-	waiting       bool
+	// textFrom and textEnd record that text is exactly src[textFrom:textEnd] —
+	// the usual case, prose copied through unchanged — so flush can hand out a
+	// substring of src instead of allocating a copy. textFrom < 0 means text was
+	// built from something else (an escape, a decoded entity, a rule's output).
+	textFrom, textEnd int
+	context           token.InlineContext
+	memos             []inlineMemoSlot
+	refs              *referenceResolver
+	pending           pendingReference
+	waiting           bool
 	// sealLocal forces an unresolved reference in this one parse to fall back to
 	// literal text, exactly as a sealed document would, without touching the
 	// shared resolver. It is how the streaming seal-undefined policy resolves a
@@ -376,10 +397,30 @@ func (s *InlineState) Advance(n int) { s.pos += n }
 func (s *InlineState) AddWork(n int) { s.work += n }
 
 // AddText folds literal text into the pending text token.
-func (s *InlineState) AddText(t string) { s.text = append(s.text, t...) }
+func (s *InlineState) AddText(t string) {
+	s.textFrom = -1
+	s.text = append(s.text, t...)
+}
 
 // AddByte folds one literal byte into the pending text token.
-func (s *InlineState) AddByte(b byte) { s.text = append(s.text, b) }
+func (s *InlineState) AddByte(b byte) {
+	s.textFrom = -1
+	s.text = append(s.text, b)
+}
+
+// addSource folds src[from:to] into the pending text, remembering while the
+// pending text is still one contiguous run of the source.
+func (s *InlineState) addSource(from, to int) {
+	switch {
+	case len(s.text) == 0:
+		s.textFrom, s.textEnd = from, to
+	case s.textFrom >= 0 && s.textEnd == from && s.textFrom+len(s.text) == from:
+		s.textEnd = to
+	default:
+		s.textFrom = -1
+	}
+	s.text = append(s.text, s.src[from:to]...)
+}
 
 // Emit settles the pending text, then appends one finished token.
 func (s *InlineState) Emit(tok token.Inline) {
@@ -402,9 +443,18 @@ func (s *InlineState) Parse(sub string) []token.Inline { return s.parser.Parse(s
 
 func (s *InlineState) flush() {
 	if len(s.text) > 0 {
-		s.appendItem(inlineItem{tok: token.Inline{Node: token.Text, Text: string(s.text)}})
+		text := ""
+		if s.textFrom >= 0 {
+			// The pending text is a prefix of one source run (trailing
+			// whitespace may have been trimmed off its end): alias it.
+			text = s.src[s.textFrom : s.textFrom+len(s.text)]
+		} else {
+			text = string(s.text)
+		}
+		s.appendItem(inlineItem{tok: token.Inline{Node: token.Text, Text: text}})
 		s.text = s.text[:0]
 	}
+	s.textFrom = -1
 }
 
 // trimTrailingWhitespace removes source whitespace that is insignificant at a
@@ -713,11 +763,12 @@ func (linkCloseRule) Match(s *InlineState) bool {
 		s.failBracket(bracketIndex)
 		return true
 	}
-	if definition, found := s.refs.lookupNormalized(pending.key); found {
+	definition, found, refused := s.refs.resolve(pending.key)
+	if found {
 		s.completeBracket(bracketIndex, definition.destination, definition.title, pending.after)
 		return true
 	}
-	if s.refs != nil && !s.refs.sealed && !s.sealLocal {
+	if !refused && s.refs != nil && !s.refs.sealed && !s.sealLocal {
 		s.pending = pending
 		s.waiting = true
 		return true
@@ -763,13 +814,14 @@ func (s *InlineState) resumePendingReference() bool {
 		return true
 	}
 	pending := s.pending
-	if definition, ok := s.refs.lookupNormalized(pending.key); ok {
+	definition, ok, refused := s.refs.resolve(pending.key)
+	if ok {
 		s.waiting = false
 		s.pending = pendingReference{}
 		s.completeBracket(pending.bracketIndex, definition.destination, definition.title, pending.after)
 		return true
 	}
-	if s.refs != nil && !s.refs.sealed && !s.sealLocal {
+	if !refused && s.refs != nil && !s.refs.sealed && !s.sealLocal {
 		return false
 	}
 	s.waiting = false
@@ -1476,8 +1528,11 @@ func (s *InlineState) removeDelimiter(index int) {
 
 // flattenItems traverses presentation order, not arena allocation order. Any
 // unconsumed delimiter runs materialise as literal text only at this boundary.
-func flattenItems(s *InlineState) []token.Inline {
-	out := make([]token.Inline, 0, len(s.items))
+func flattenItems(s *InlineState, dst []token.Inline) []token.Inline {
+	out := dst[:0]
+	if cap(out) < len(s.items) {
+		out = make([]token.Inline, 0, len(s.items))
+	}
 	for index := s.head; index != noInlineIndex; index = s.items[index].next {
 		item := &s.items[index]
 		if item.removed {

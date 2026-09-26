@@ -73,7 +73,7 @@ func (p *Parser) writeFinalEvent(w renderer.Writer, blocks *parser.BlockState, e
 func (p *Parser) renderDirect(w renderer.Writer, src string) {
 	bp := p.borrow()
 	defer p.release(bp)
-	driver := documentDriver{blocks: bp}
+	driver := newBatchDriver(bp, src)
 	defer driver.Release()
 	render := func(ev token.BlockEvent, inlines []token.Inline) bool {
 		p.writeDocumentEvent(w, ev, inlines)

@@ -81,7 +81,16 @@ type Parser struct {
 //
 //	import "github.com/Wenrh2004/mdflow/all"
 //	p := all.New() // CommonMark + bundled GFM and Memos extensions
-func New(opts ...Option) *Parser { return NewBuilder().With(opts...).Build() }
+//
+// A Parser is immutable, so New with no options returns one shared instance
+// rather than rebuilding the same rule set and renderer on every call — a
+// handler that calls mdflow.New() per request pays for it once per process.
+func New(opts ...Option) *Parser {
+	if len(opts) == 0 {
+		return defaultParser()
+	}
+	return NewBuilder().With(opts...).Build()
+}
 
 // NewWith builds a Parser from an explicit parser/renderer pair and only the
 // extensions named. parser.New intentionally omits raw HTML, so an explicit
@@ -119,6 +128,29 @@ func (p *Parser) WithExtensions(exts ...extension.Extension) *Parser {
 	spec := p.cfg.clone()
 	spec.apply(exts...)
 	return newParser(spec, p.pipeline, p.workers)
+}
+
+// With derives a Parser with opts applied on top of the receiver's
+// configuration: its capabilities, renderer settings, middlewares and worker
+// count carry over, and the receiver is untouched. It is how a construction
+// option joins a chain:
+//
+//	md := mdflow.New().
+//		With(mdflow.WithSafeLinks(), mdflow.WithHTML5()).
+//		Transform(mdflow.ShiftHeadings(1))
+//
+// Options that add (WithExtensions, WithOutput, WithSafeLinks, WithURLPolicy,
+// WithHTML5) extend what the receiver already has. Options that replace
+// (WithRules, WithRenderer, WithOnly) start from what they supply instead, as
+// they would in [New]; capabilities already applied to the receiver cannot be
+// subtracted.
+func (p *Parser) With(opts ...Option) *Parser {
+	if len(opts) == 0 {
+		return p
+	}
+	b := &Builder{rules: p.cfg.Rules, rend: p.cfg.Renderer}
+	derived := b.With(opts...).Build()
+	return newParser(derived.cfg, p.pipeline, p.workers)
 }
 
 // Transform derives a Parser with additional event middlewares appended.
@@ -159,10 +191,12 @@ func (p *Parser) Tap(f func(Event)) *Parser {
 	})
 }
 
-// Spec exposes the underlying rule set and renderer, for callers that want to
-// register a rule in place. Mutating it affects every Parser derived from this
-// one; prefer WithExtensions for isolated changes.
-func (p *Parser) Spec() *Spec { return p.cfg }
+// Spec returns a deep copy of the parser's rule set and renderer. Changing the
+// copy never affects p — a Parser is immutable, which is what makes it safe to
+// share. To derive a parser with more syntax or output, use
+// [Parser.WithExtensions] or [Parser.With]; to start from the copy, pass its
+// fields to [NewWith].
+func (p *Parser) Spec() *Spec { return p.cfg.clone() }
 
 // ---- pooling ----
 

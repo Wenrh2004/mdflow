@@ -7,6 +7,8 @@
 package all
 
 import (
+	"sync"
+
 	"github.com/Wenrh2004/mdflow"
 	"github.com/Wenrh2004/mdflow/extension"
 	"github.com/Wenrh2004/mdflow/extension/gfm"
@@ -27,6 +29,16 @@ var All = extension.Set{gfm.GFM, memos.Memos, rawhtml.RawHTML}
 // Memos extension. Raw HTML remains escaped unless rawhtml.WithUnsafeHTML is
 // supplied explicitly for trusted input.
 func New(opts ...mdflow.Option) *mdflow.Parser {
+	if len(opts) == 0 {
+		// A Parser is immutable: build the full profile once and share it.
+		return shared()
+	}
+	return build(opts...)
+}
+
+var shared = sync.OnceValue(func() *mdflow.Parser { return build() })
+
+func build(opts ...mdflow.Option) *mdflow.Parser {
 	// Replace mdflow.New's safe raw-HTML default instead of adding All on top of
 	// it: All already contains RawHTML, and registering the same syntax twice
 	// would duplicate every `<` probe and block continuation.

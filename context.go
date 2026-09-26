@@ -6,7 +6,6 @@ import (
 	"io"
 	"iter"
 	"strings"
-	"sync"
 
 	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/renderer"
@@ -100,7 +99,7 @@ func (p *Parser) renderToContext(ctx context.Context, w renderer.Writer, src str
 func (p *Parser) renderDirectContext(ctx context.Context, w renderer.Writer, src string) error {
 	bp := p.borrow()
 	defer p.release(bp)
-	driver := documentDriver{blocks: bp}
+	driver := newBatchDriver(bp, src)
 	defer driver.Release()
 	render := func(ev token.BlockEvent, inlines []token.Inline) bool {
 		p.writeDocumentEvent(w, ev, inlines)
@@ -133,7 +132,7 @@ func (p *Parser) rawEventsContext(ctx context.Context, src string) iter.Seq[Even
 	return func(yield func(Event) bool) {
 		bp := p.borrow()
 		defer p.release(bp)
-		driver := documentDriver{blocks: bp}
+		driver := newBatchDriver(bp, src)
 		defer driver.Release()
 		emit := func(ev token.BlockEvent, inlines []token.Inline) bool {
 			return p.emitDocumentEvent(ev, inlines, yield)
@@ -153,64 +152,4 @@ func (p *Parser) rawEventsContext(ctx context.Context, src string) iter.Seq[Even
 			driver.Close(emit)
 		}
 	}
-}
-
-// renderParallelContext is [Parser.renderParallel] with cancellation checks at
-// the two points fan-out can bail cheaply: before dispatch, and at each
-// worker's partition boundary. A cancel mid-flight abandons the per-worker
-// buffers rather than concatenating a half-rendered document.
-//
-// It is a deliberate near-copy of renderParallel: that path is measured to the
-// byte (see its doc comment), so the context spelling gets its own body rather
-// than folding a ctx check into the hot one.
-func (p *Parser) renderParallelContext(ctx context.Context, w renderer.Writer, src string) error {
-	bp := p.borrow()
-	defer p.release(bp)
-
-	events := bp.CollectAll(src)
-	bp.SealReferences()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	n := min(p.workers, len(events))
-	if n <= 1 {
-		for i := range events {
-			p.writeFinalEvent(w, bp, events[i])
-		}
-		return ctx.Err()
-	}
-
-	bufs := make([]strings.Builder, n)
-	per := (len(events) + n - 1) / n
-	reserve := len(src)/n + len(src)/(2*n) + 64
-
-	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		lo := i * per
-		if lo >= len(events) {
-			break
-		}
-		hi := min(lo+per, len(events))
-		wg.Add(1)
-		go func(i, lo, hi int) {
-			defer wg.Done()
-			if ctx.Err() != nil {
-				return // a cancel between dispatch and start: skip the work
-			}
-			b := &bufs[i]
-			b.Grow(reserve)
-			for j := lo; j < hi; j++ {
-				p.writeFinalEvent(b, bp, events[j])
-			}
-		}(i, lo, hi)
-	}
-	wg.Wait()
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	for i := range bufs {
-		w.WriteString(bufs[i].String())
-	}
-	return nil
 }

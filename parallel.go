@@ -1,6 +1,7 @@
 package mdflow
 
 import (
+	"context"
 	"io"
 	"runtime"
 	"strings"
@@ -104,6 +105,27 @@ func (p *Parser) parallelEligible(src string) bool {
 // renderParallel renders events in n contiguous partitions and concatenates the
 // per-worker buffers in order.
 func (p *Parser) renderParallel(w renderer.Writer, src string) {
+	_ = p.renderParallelContext(context.Background(), w, src)
+}
+
+// renderParallelContext is the one fan-out implementation. Cancellation is
+// checked only where fan-out can bail cheaply — before dispatch and at each
+// worker's partition boundary — so the Background spelling pays nothing
+// measurable for sharing this body.
+//
+// Two conditions make the fan-out defer to the sequential path, both so that
+// Workers never changes what a document renders to:
+//
+//   - A worker panic (a misbehaving extension) is re-raised on the caller's
+//     goroutine after every worker stops. A panic on a goroutine the library
+//     spawned could never be recovered by the caller and would take the whole
+//     process down.
+//   - The reference-expansion budget is charged as references resolve. The
+//     sequential path charges it in document order; workers charge it in
+//     whatever order they run. If any worker was refused, the partitions are
+//     discarded and the document renders sequentially, so the budget bites at
+//     exactly the same reference either way.
+func (p *Parser) renderParallelContext(ctx context.Context, w renderer.Writer, src string) error {
 	bp := p.borrow()
 	// Held until every worker is done: the event slice is bp's backing array,
 	// so releasing early would hand it to another goroutine mid-render.
@@ -111,12 +133,12 @@ func (p *Parser) renderParallel(w renderer.Writer, src string) {
 
 	events := bp.CollectAll(src)
 	bp.SealReferences()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	n := min(p.workers, len(events))
-	if n <= 1 {
-		for i := range events {
-			p.writeFinalEvent(w, bp, events[i])
-		}
-		return
+	if n < 1 {
+		n = 1
 	}
 
 	bufs := make([]strings.Builder, n)
@@ -124,6 +146,7 @@ func (p *Parser) renderParallel(w renderer.Writer, src string) {
 	// Each worker's output is roughly its share of the final HTML; reserving up
 	// front keeps the builders from doubling repeatedly under contention.
 	reserve := len(src)/n + len(src)/(2*n) + 64
+	panics := make([]any, n)
 
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
@@ -135,6 +158,10 @@ func (p *Parser) renderParallel(w renderer.Writer, src string) {
 		wg.Add(1)
 		go func(i, lo, hi int) {
 			defer wg.Done()
+			defer func() { panics[i] = recover() }()
+			if ctx.Err() != nil {
+				return // a cancel between dispatch and start: skip the work
+			}
 			b := &bufs[i]
 			b.Grow(reserve)
 			for j := lo; j < hi; j++ {
@@ -144,19 +171,36 @@ func (p *Parser) renderParallel(w renderer.Writer, src string) {
 	}
 	wg.Wait()
 
+	for _, v := range panics {
+		if v != nil {
+			panic(v)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if bp.ReferencesRefused() {
+		return p.renderDirectContext(ctx, w, src)
+	}
 	for i := range bufs {
 		w.WriteString(bufs[i].String())
 	}
+	return nil
 }
 
 // HTMLParallel renders src using the fan-out path regardless of the configured
 // worker count, using runtime.GOMAXPROCS(0) goroutines. It is the explicit form
 // of Workers(0).HTML; the size and pipeline fallbacks still apply.
+//
+// Deprecated: Use p.Workers(0).HTML(src), which states the same thing in the
+// chain and composes with every other terminal operation.
 func (p *Parser) HTMLParallel(src string) string {
 	return p.Workers(0).HTML(src)
 }
 
 // RenderParallel is HTMLParallel streaming into w.
+//
+// Deprecated: Use p.Workers(0).Render(w, src).
 func (p *Parser) RenderParallel(w io.Writer, src string) error {
 	return p.Workers(0).Render(w, src)
 }

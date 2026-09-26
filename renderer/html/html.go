@@ -42,6 +42,9 @@ type Renderer struct {
 	// data:, vbscript:, …). It is off by default so the profile stays
 	// byte-for-byte CommonMark; mdflow.WithSafeLinks turns it on.
 	SafeLinks bool
+	// URLPolicy, when set, vets every link and image destination after the
+	// SafeLinks scheme check. See [URLPolicy]; mdflow.WithURLPolicy sets it.
+	URLPolicy URLPolicy
 }
 
 // NewRenderer builds the default HTML renderer.
@@ -118,6 +121,7 @@ func (h *Renderer) Clone() renderer.Renderer {
 		customCont: slices.Clone(h.customCont),
 		XHTML:      h.XHTML,
 		SafeLinks:  h.SafeLinks,
+		URLPolicy:  h.URLPolicy,
 	}
 	maps.Copy(out.overrides, h.overrides)
 	return out
@@ -260,8 +264,8 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 				break
 			}
 			w.WriteString(`<a href="`)
-			if !h.SafeLinks || linkSchemeAllowed(t.Dest) {
-				writeEscapedURL(w, t.Dest)
+			if dest, ok := h.destination(LinkURL, t.Dest); ok {
+				writeEscapedURL(w, dest)
 			}
 			if t.Title != "" {
 				w.WriteString(`" title="`)
@@ -273,10 +277,17 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 				break // consumed by the open token
 			}
 			end := findClose(toks, i, token.Image)
-			w.WriteString(`<img src="`)
-			if !h.SafeLinks || linkSchemeAllowed(t.Dest) {
-				writeEscapedURL(w, t.Dest)
+			dest, ok := h.destination(ImageURL, t.Dest)
+			if !ok {
+				// A refused image must not become an <img> at all: even an
+				// empty src makes some browsers issue a request. Its alt text
+				// is what a reader would have seen had it failed to load.
+				writeEscaped(w, plainText(toks[i+1:end]))
+				i = end
+				break
 			}
+			w.WriteString(`<img src="`)
+			writeEscapedURL(w, dest)
 			w.WriteString(`" alt="`)
 			writeEscaped(w, plainText(toks[i+1:end]))
 			if t.Title != "" {
@@ -301,6 +312,18 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 			writeEscaped(w, t.Text)
 		}
 	}
+}
+
+// destination applies the configured URL checks to a decoded destination:
+// first the SafeLinks scheme allowlist, then the URLPolicy.
+func (h *Renderer) destination(kind URLKind, dest string) (string, bool) {
+	if h.SafeLinks && !linkSchemeAllowed(dest) {
+		return "", false
+	}
+	if h.URLPolicy != nil {
+		return h.URLPolicy(kind, dest)
+	}
+	return dest, true
 }
 
 // findClose returns the index of the close token matching the open token at i,

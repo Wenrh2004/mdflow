@@ -126,15 +126,42 @@ func finaliseTable(s *parser.BlockState, lines []string, scratch tableScratch) {
 	s.Emit(token.BlockEvent{Type: token.OpenBlock, Container: token.CustomContainer, Tag: tableHeadTag})
 	emitRow(s, lines[0], aligns, true)
 	s.Emit(token.BlockEvent{Type: token.CloseBlock, Container: token.CustomContainer, Tag: tableHeadTag})
-	if len(lines) > 1 {
+	body := lines[1:]
+	var rest []string
+	budget := maxAutocompletedCells
+	for i, row := range body {
+		// A short row is padded to the header's width, so a wide header over
+		// many one-cell rows turns n bytes of input into n² cells of output.
+		// Bound the padding per table, as cmark-gfm does: the row that would
+		// exceed it ends the table and the remaining lines stay paragraph text.
+		if missing := len(aligns) - countCells(row); missing > 0 {
+			if budget -= missing; budget < 0 {
+				body, rest = body[:i], body[i:]
+				break
+			}
+		}
+	}
+	if len(body) > 0 {
 		s.Emit(token.BlockEvent{Type: token.OpenBlock, Container: token.CustomContainer, Tag: tableBodyTag})
-		for _, row := range lines[1:] {
+		for _, row := range body {
 			emitRow(s, row, aligns, false)
 		}
 		s.Emit(token.BlockEvent{Type: token.CloseBlock, Container: token.CustomContainer, Tag: tableBodyTag})
 	}
 	s.Emit(token.BlockEvent{Type: token.CloseBlock, Container: token.CustomContainer, Tag: tableTag})
+	if len(rest) > 0 {
+		for i, line := range rest {
+			rest[i] = strings.TrimLeft(line, " \t")
+		}
+		s.Emit(token.BlockEvent{Type: token.LeafBlock, Leaf: token.Leaf{
+			Node: token.Paragraph, Content: strings.Join(rest, "\n"),
+		}})
+	}
 }
+
+// maxAutocompletedCells bounds the empty cells one table may synthesise for
+// short rows. It matches cmark-gfm's limit and is far above any real table.
+const maxAutocompletedCells = 0x80000
 
 func emitRow(s *parser.BlockState, row string, aligns []token.Align, header bool) {
 	s.Emit(token.BlockEvent{Type: token.OpenBlock, Container: token.CustomContainer, Tag: tableRowTag})

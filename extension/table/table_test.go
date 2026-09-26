@@ -119,3 +119,17 @@ func TestTableSurvivesStreaming(t *testing.T) {
 		}
 	}
 }
+
+// A wide header over many one-cell rows is padded to the header's width. That
+// padding is bounded per table, as in cmark-gfm, so output stays linear.
+func TestAutocompletedCellsAreBounded(t *testing.T) {
+	const n = 3_000
+	src := strings.Repeat("|a", n) + "|\n" + strings.Repeat("|-", n) + "|\n" + strings.Repeat("|x\n", n)
+	out := newParser().HTML(src)
+	if limit := 20*len(src) + 12*0x80000; len(out) > limit {
+		t.Fatalf("output %d bytes from %d bytes of input; want <= %d", len(out), len(src), limit)
+	}
+	if !strings.Contains(out, "</table>\n<p>|x\n|x") {
+		t.Fatal("rows past the padding budget must end the table and stay paragraph text")
+	}
+}

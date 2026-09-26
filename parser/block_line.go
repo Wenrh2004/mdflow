@@ -113,6 +113,17 @@ func (l blockLine) leadingIndent() int {
 
 // blank reports whether the remainder is whitespace only. pad is ignored: it
 // only ever stands for the leftover columns of a split tab, which are blank.
+// lead returns the line's indentation in columns and its first non-blank
+// byte, or 0 when the line is blank.
+func (l blockLine) lead() (indent int, first byte) {
+	indent = l.leadingIndent()
+	rest := l.consumeIndent(indent)
+	if c, ok := rest.peek(); ok && c != ' ' && c != '\t' {
+		return indent, c
+	}
+	return indent, 0
+}
+
 func (l blockLine) blank() bool {
 	for i := l.off; i < len(l.raw); i++ {
 		if l.raw[i] != ' ' && l.raw[i] != '\t' {

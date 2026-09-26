@@ -3,7 +3,6 @@ package mdflow
 import (
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/token"
 )
 
@@ -138,7 +137,11 @@ func SealUndefinedReferencesAfter(n int) StreamOption {
 
 // Stream starts an incremental parse session.
 func (p *Parser) Stream(opts ...StreamOption) *Stream {
-	s := &Stream{p: p, driver: newDocumentDriver(parser.NewBlockState(p.cfg.Rules))}
+	// The block state comes from the parser's pool, as it does for a whole-
+	// document render: a chat server opening thousands of short streams
+	// otherwise builds a fresh state machine (and its buffers) for each one.
+	// Close returns it; a stream abandoned without Close is simply collected.
+	s := &Stream{p: p, driver: newDocumentDriver(p.borrow())}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -166,9 +169,15 @@ func (s *Stream) Feed(chunk string) string {
 			s.pending.WriteString(chunk)
 			break
 		}
-		s.pending.WriteString(chunk[:i])
-		line := s.pending.String()
-		s.pending.Reset()
+		// A line wholly inside this chunk is a substring of it — strings are
+		// immutable, so it can be fed without copying. Only a line split across
+		// chunks is assembled in pending.
+		line := chunk[:i]
+		if s.pending.Len() > 0 {
+			s.pending.WriteString(line)
+			line = s.pending.String()
+			s.pending.Reset()
+		}
 		s.driver.FeedLine(line, s.emit)
 
 		ending := chunk[i]
@@ -298,7 +307,7 @@ func (s *Stream) Close() string {
 	s.driver.Close(s.emit)
 	s.blocks = s.driver.blocks.Total()
 	s.driver.Release()
-	s.driver.blocks.Reset(s.p.cfg.Rules)
+	s.p.release(s.driver.blocks)
 	s.driver = nil
 	s.closed = true
 	s.afterCR = false

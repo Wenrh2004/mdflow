@@ -2,6 +2,7 @@ package parser
 
 import (
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -20,6 +21,42 @@ type referenceDefinition struct {
 type referenceResolver struct {
 	definitions map[string]referenceDefinition
 	sealed      bool
+
+	// input counts the source bytes the block phase has consumed. It sizes the
+	// expansion budget and is written only by the block phase, before any
+	// parallel worker reads it.
+	input int64
+	// expanded is the destination and title bytes references have expanded to
+	// so far. Every [x] copies its definition into the output, so a long
+	// definition used many times turns kilobytes of input into gigabytes of
+	// output. cmark bounds the total the same way. It is atomic because sealed
+	// parallel workers charge it concurrently.
+	expanded atomic.Int64
+	refused  atomic.Bool
+}
+
+// minReferenceExpansion is the expansion budget a small document always has,
+// so an ordinary short page is never refused.
+const minReferenceExpansion = 100 << 10
+
+// resolve looks a normalised key up and charges its expansion against the
+// document budget: max(input so far, minReferenceExpansion). Past the budget a
+// defined reference is refused and renders as literal text, which is what keeps
+// output linear in input.
+func (r *referenceResolver) resolve(key string) (definition referenceDefinition, found, refused bool) {
+	definition, found = r.lookupNormalized(key)
+	if !found {
+		return referenceDefinition{}, false, false
+	}
+	cost := int64(len(definition.destination) + len(definition.title))
+	if cost == 0 {
+		return definition, true, false
+	}
+	if r.expanded.Add(cost) > max(r.input, minReferenceExpansion) {
+		r.refused.Store(true)
+		return referenceDefinition{}, false, true
+	}
+	return definition, true, false
 }
 
 func (r *referenceResolver) define(label string, definition referenceDefinition) bool {
@@ -64,22 +101,29 @@ func (r *referenceResolver) reset() {
 	if r != nil {
 		r.definitions = nil
 		r.sealed = false
+		r.input = 0
+		r.expanded.Store(0)
+		r.refused.Store(false)
 	}
 }
 
-func (r *referenceResolver) clone() referenceResolver {
+// cloneInto copies r into dst. It writes through a pointer rather than
+// returning a value because the resolver holds atomics, which must not be
+// copied.
+func (r *referenceResolver) cloneInto(dst *referenceResolver) {
 	if r == nil {
-		return referenceResolver{}
+		return
 	}
-	cloned := referenceResolver{sealed: r.sealed}
+	dst.sealed, dst.input = r.sealed, r.input
+	dst.expanded.Store(r.expanded.Load())
+	dst.refused.Store(r.refused.Load())
 	if len(r.definitions) == 0 {
-		return cloned
+		return
 	}
-	cloned.definitions = make(map[string]referenceDefinition, len(r.definitions))
+	dst.definitions = make(map[string]referenceDefinition, len(r.definitions))
 	for label, definition := range r.definitions {
-		cloned.definitions[label] = definition
+		dst.definitions[label] = definition
 	}
-	return cloned
 }
 
 // scanReferenceDefinition recognises one CommonMark link reference

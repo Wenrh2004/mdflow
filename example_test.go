@@ -2,6 +2,7 @@ package mdflow_test
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -139,4 +140,32 @@ func ExampleParser_Workers() {
 	// Output:
 	// <h1>Small doc</h1>
 	// <p>falls back to sequential.</p>
+}
+
+// A Writer streams Markdown into any io.Writer the way gzip.Writer streams
+// compressed bytes: write chunks as they arrive, Close at the end.
+func ExampleParser_NewWriter() {
+	w := mdflow.New().NewWriter(os.Stdout)
+	for _, chunk := range []string{"# Str", "eamed\n\nHello, *wor", "ld*.\n"} {
+		if _, err := io.WriteString(w, chunk); err != nil {
+			panic(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		panic(err)
+	}
+	// Output:
+	// <h1>Streamed</h1>
+	// <p>Hello, <em>world</em>.</p>
+}
+
+// With joins construction options to a chain.
+func ExampleParser_With() {
+	md := mdflow.New().
+		With(mdflow.WithSafeLinks()).
+		Transform(mdflow.ShiftHeadings(1))
+	fmt.Print(md.HTML("# Title\n\n[x](javascript:alert(1))\n"))
+	// Output:
+	// <h2>Title</h2>
+	// <p><a href="">x</a></p>
 }

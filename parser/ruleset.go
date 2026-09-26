@@ -106,7 +106,7 @@ type finalise func(s *BlockState, lines []string, scratch any)
 func New() *RuleSet {
 	c := &RuleSet{
 		paragraph:  paragraphRule{},
-		inline:     &InlineRules{rules: make(map[byte][]InlineRule, 16)},
+		inline:     &InlineRules{},
 		finalisers: make(map[token.Tag]finalise),
 	}
 
@@ -150,7 +150,6 @@ func (c *RuleSet) Clone() *RuleSet {
 		continuations:  append([]Continuation(nil), c.continuations...),
 		finalisers:     make(map[token.Tag]finalise, len(c.finalisers)),
 		inline: &InlineRules{
-			rules:    make(map[byte][]InlineRule, len(c.inline.rules)),
 			post:     append([]inlinePost(nil), c.inline.post...),
 			triggers: c.inline.triggers,
 		},
@@ -159,7 +158,9 @@ func (c *RuleSet) Clone() *RuleSet {
 		out.finalisers[k] = v
 	}
 	for k, v := range c.inline.rules {
-		out.inline.rules[k] = append([]InlineRule(nil), v...)
+		if v != nil {
+			out.inline.rules[k] = append([]InlineRule(nil), v...)
+		}
 	}
 	return out
 }

@@ -123,6 +123,7 @@ func (s *BlockState) Reset(rules *RuleSet) {
 func (s *BlockState) FeedLine(raw string) []token.BlockEvent {
 	clear(s.events)
 	s.events = s.events[:0]
+	s.references.input += int64(len(raw)) + 1
 	line := newBlockLine(normalizeSourceLine(raw))
 
 	// Fenced code wins: while the container prefix still matches, the line is
@@ -224,6 +225,12 @@ func (s *BlockState) CloseAll() []token.BlockEvent {
 // registered every definition it contains.
 func (s *BlockState) SealReferences() { s.references.seal() }
 
+// ReferencesRefused reports whether any reference in this document was refused
+// by the expansion budget and rendered as literal text instead. The fan-out
+// path uses it to fall back to document-order rendering, where the budget is
+// charged deterministically.
+func (s *BlockState) ReferencesRefused() bool { return s.references.refused.Load() }
+
 // HeldCount reports how many block events are currently held pending an open
 // list's final tightness. These events have immutable content (the buffer is
 // append-only until the outer list closes), so a streaming consumer can cache
@@ -263,12 +270,21 @@ func fnvHash(h uint64, s string) uint64 {
 // returns a cursor only when the scan reaches a syntactically valid reference
 // whose first definition may still appear later in the document.
 func (s *BlockState) StartInline(leaf token.Leaf) ([]token.Inline, *InlineCursor) {
+	return s.AppendInline(nil, leaf)
+}
+
+// AppendInline is [BlockState.StartInline] that flattens the tokens into
+// dst[:0], growing it only when it is too small, in the manner of
+// strconv.AppendInt. A caller that consumes each leaf's tokens before parsing
+// the next — a renderer, which is every render path — reuses one buffer for
+// the whole document instead of allocating per leaf.
+func (s *BlockState) AppendInline(dst []token.Inline, leaf token.Leaf) ([]token.Inline, *InlineCursor) {
 	if leaf.Literal || leaf.Content == "" {
 		return nil, nil
 	}
 	switch leaf.Node {
 	case token.Heading, token.Paragraph, token.CustomLeaf:
-		tokens, cursor, _ := s.rules.inline.startContext(leaf.Content, leaf.Context, &s.references)
+		tokens, cursor, _ := s.rules.inline.startContext(dst, leaf.Content, leaf.Context, &s.references)
 		return tokens, cursor
 	default:
 		return nil, nil
@@ -405,12 +421,26 @@ func (s *BlockState) continueLine(rest blockLine) {
 		}
 	}
 
+	// Every container opened below re-asks whether the remainder is a thematic
+	// break. Rescanning the remainder each time is quadratic in nesting depth
+	// (`- - - … x`), so the suffix that could still qualify is found once per
+	// raw line and every earlier remainder is rejected without a scan.
+	raw := rest.raw
+	tbFrom := thematicSuffixStart(raw)
 	for {
-		if rest.blank() || isThematicBreakBlockLine(rest) {
+		if rest.raw != raw {
+			raw = rest.raw
+			tbFrom = thematicSuffixStart(raw)
+		}
+		if rest.blank() || (rest.off >= tbFrom && isThematicBreakBlockLine(rest)) {
 			break // a thematic break outranks a list marker
 		}
 		opened := false
+		indent, first := rest.lead()
 		for _, cr := range s.rules.containerRules {
+			if !mayStart(cr, indent, first) {
+				continue
+			}
 			if r, ok := openContainerRule(cr, s, rest); ok {
 				rest = r
 				opened = true
@@ -428,13 +458,49 @@ func (s *BlockState) continueLine(rest blockLine) {
 		s.closeContainersFrom(len(s.stack) - 1)
 	}
 
+	indent, first := rest.lead()
 	for _, lr := range s.rules.leafRules {
-		if openLeafRule(lr, s, rest) {
+		if mayStart(lr, indent, first) && openLeafRule(lr, s, rest) {
 			return
 		}
 	}
 	openLeafRule(s.rules.paragraph, s, rest)
 }
+
+// blockStarter is implemented by built-in block rules whose opening line must
+// begin (after at most three columns of indentation) with one of a few bytes.
+// Every line is otherwise offered to every rule, and for ordinary prose each
+// one rediscovers the indentation just to reject the first letter; the rule
+// set is walked on every line, so that repeated rejection dominated the block
+// phase for short lines. Extension rules need not implement it: a rule that
+// does not is always tried, exactly as before.
+type blockStarter interface {
+	startsWith(c byte) bool
+}
+
+// mayStart reports whether rule r could open on a line with the given
+// indentation and first non-blank byte (0 for a blank line). Blank and
+// indented lines always reach the rule, which owns their subtler cases.
+func mayStart(r any, indent int, first byte) bool {
+	if first == 0 || indent >= 4 {
+		return true
+	}
+	if st, ok := r.(blockStarter); ok {
+		return st.startsWith(first)
+	}
+	return true
+}
+
+func (blockquoteRule) startsWith(c byte) bool { return c == '>' }
+func (listRule) startsWith(c byte) bool {
+	return c == '-' || c == '+' || c == '*' || '0' <= c && c <= '9'
+}
+func (blankRule) startsWith(byte) bool           { return false }
+func (setextHeadingRule) startsWith(c byte) bool { return c == '=' || c == '-' }
+func (thematicBreakRule) startsWith(c byte) bool { return c == '-' || c == '*' || c == '_' }
+func (atxHeadingRule) startsWith(c byte) bool    { return c == '#' }
+func (fenceRule) startsWith(c byte) bool         { return c == '`' || c == '~' }
+func (indentedCodeRule) startsWith(byte) bool    { return false }
 
 // ---- operations exposed to rules ----
 
@@ -898,8 +964,8 @@ func (s *BlockState) Clone() *BlockState {
 	out := &BlockState{
 		rules: s.rules, seq: s.seq,
 		holdingLists: s.holdingLists, listDepth: s.listDepth,
-		references: s.references.clone(),
 	}
+	s.references.cloneInto(&out.references)
 	out.stack = append([]container(nil), s.stack...)
 	out.held = append([]token.BlockEvent(nil), s.held...)
 	if s.leaf != nil {
@@ -1274,6 +1340,28 @@ func finishListMarker(original, afterMarker blockLine, info listMarkerInfo) (lis
 	info.rest = afterMarker.consumeIndent(padding)
 	info.width = info.rest.column - original.column
 	return info, true
+}
+
+// thematicSuffixStart returns the smallest offset from which raw could still
+// hold a thematic break: the start of the longest suffix made only of spaces,
+// tabs and a single marker byte. Any suffix starting earlier contains either a
+// non-marker byte or two different markers, so it can never qualify.
+func thematicSuffixStart(raw string) int {
+	i := len(raw)
+	var ch byte
+	for i > 0 {
+		c := raw[i-1]
+		switch {
+		case c == ' ' || c == '\t':
+		case ch == 0 && (c == '-' || c == '*' || c == '_'):
+			ch = c
+		case c == ch:
+		default:
+			return i
+		}
+		i--
+	}
+	return 0
 }
 
 func isThematicBreakBlockLine(line blockLine) bool {

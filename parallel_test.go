@@ -36,8 +36,8 @@ func TestParallelMatchesSequential(t *testing.T) {
 				t.Fatalf("sections=%d workers=%d: output differs from sequential", sections, n)
 			}
 		}
-		if got := base.HTMLParallel(src); got != want {
-			t.Fatalf("sections=%d: HTMLParallel differs from sequential", sections)
+		if got := base.Workers(0).HTML(src); got != want {
+			t.Fatalf("sections=%d: Workers(0).HTML differs from sequential", sections)
 		}
 	}
 }
@@ -46,11 +46,11 @@ func TestParallelRenderToWriter(t *testing.T) {
 	src := bigDoc(100)
 	base := mdflow.New()
 	var b strings.Builder
-	if err := base.RenderParallel(&b, src); err != nil {
+	if err := base.Workers(0).Render(&b, src); err != nil {
 		t.Fatal(err)
 	}
 	if b.String() != base.HTML(src) {
-		t.Error("RenderParallel differs from sequential HTML")
+		t.Error("Workers(0).Render differs from sequential HTML")
 	}
 }
 

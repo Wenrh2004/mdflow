@@ -12,11 +12,6 @@ const (
 	maxHexEntityDigits     = 6
 )
 
-type htmlEntity struct {
-	name  string
-	value string
-}
-
 // scanCharacterReference scans the strict CommonMark form beginning at src[0].
 // CommonMark requires the semicolon for both named and numeric references. It
 // also caps decimal references at seven digits and hexadecimal references at
@@ -132,17 +127,33 @@ func isASCIIAlphanumeric(c byte) bool {
 // sorted table. A map would add construction/allocation work to every parser
 // process even when ordinary prose never contains a reference.
 func lookupHTMLEntity(name string) (string, bool) {
-	lo, hi := 0, len(htmlEntities)
+	lo, hi := 0, len(entityIndex)
 	for lo < hi {
 		mid := int(uint(lo+hi) >> 1)
-		if htmlEntities[mid].name < name {
+		if entityName(mid) < name {
 			lo = mid + 1
 		} else {
 			hi = mid
 		}
 	}
-	if lo < len(htmlEntities) && htmlEntities[lo].name == name {
-		return htmlEntities[lo].value, true
+	if lo < len(entityIndex) && entityName(lo) == name {
+		return entityValue(lo), true
 	}
 	return "", false
+}
+
+// entityName and entityValue read record i of the packed table: a length byte
+// and the name, then a length byte and the value. Both are substrings of the
+// constant, so neither allocates.
+func entityName(i int) string {
+	off := int(entityIndex[i])
+	n := int(entityData[off])
+	return entityData[off+1 : off+1+n]
+}
+
+func entityValue(i int) string {
+	off := int(entityIndex[i])
+	off += 1 + int(entityData[off])
+	n := int(entityData[off])
+	return entityData[off+1 : off+1+n]
 }

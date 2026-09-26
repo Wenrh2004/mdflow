@@ -1,6 +1,8 @@
 package mdflow
 
 import (
+	"strings"
+
 	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -32,10 +34,28 @@ type documentDriver struct {
 	// shortcut reference, the reference commits as literal text rather than
 	// withholding all output until Close. Zero keeps strict CommonMark behaviour.
 	sealUndefinedAfter int
+
+	scratch []token.Inline // reused token buffer; see start
 }
 
 func newDocumentDriver(blocks *parser.BlockState) *documentDriver {
 	return &documentDriver{blocks: blocks}
+}
+
+// newBatchDriver is the driver for a whole document that is already in hand.
+//
+// A link reference definition always spells its label's closing bracket
+// immediately followed by a colon, so a source with no "]:" anywhere can never
+// define a reference. Sealing the resolver up front then lets an undefined
+// shortcut reference ([1], [x], [citation needed]) resolve to literal text on
+// the spot instead of holding every later block until end of input — which
+// keeps Render streaming and bounded for exactly the text LLMs produce. Output
+// is unchanged: with no definitions, Close would have sealed the same way.
+func newBatchDriver(blocks *parser.BlockState, src string) documentDriver {
+	if !strings.Contains(src, "]:") {
+		blocks.SealReferences()
+	}
+	return documentDriver{blocks: blocks}
 }
 
 // FeedLine advances the block machine, then tries the earliest unresolved
@@ -161,6 +181,9 @@ func (d *documentDriver) Release() {
 	}
 	d.suffix = d.suffix[:0]
 	d.suffixHead = 0
+	// The scratch tokens alias leaf source; drop them so a finished document is
+	// not kept alive through a buffer nobody will read again.
+	d.scratch = nil
 	d.released = true
 }
 
@@ -224,7 +247,13 @@ func (d *documentDriver) start(event token.BlockEvent) ([]token.Inline, *parser.
 	if event.Type != token.LeafBlock {
 		return nil, nil
 	}
-	return d.blocks.StartInline(event.Leaf)
+	// The emitter contract makes tokens valid only for the call, so one scratch
+	// buffer serves every leaf of the document.
+	tokens, cursor := d.blocks.AppendInline(d.scratch, event.Leaf)
+	if cap(tokens) > cap(d.scratch) {
+		d.scratch = tokens[:0]
+	}
+	return tokens, cursor
 }
 
 func (d *documentDriver) popSuffix() {
