@@ -60,6 +60,19 @@ jobs:
           version: v2.10.1
           working-directory: ${{ matrix.module }}
 
+  # Every published module must be consumable outside this repository: go.work
+  # wires the modules together for development, so a replace directive in a
+  # published go.mod would only hide that its requirements cannot resolve.
+  module-graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: published modules have no replace and one internal version
+        run: scripts/check-modules.sh
+
   # The core module owns no extension dependency: it must parse a plain document
   # with no import of an extension submodule or the umbrella. The base
   # extension package (mdflow/extension, holding Extension/Capability/Set) lives
@@ -95,8 +108,12 @@ jobs:
         with:
           go-version: '1.26.0'
       - name: fuzz (short budget)
+        # The core module fuzzes the safe CommonMark profile; the all module
+        # fuzzes every bundled flavour, streaming and trusted HTML.
         run: |
-          for t in $(go test -list '^Fuzz' ./... | grep '^Fuzz'); do
-            echo "== $t =="
-            go test -run '^$' -fuzz "^$t$" -fuzztime=20s .
+          for m in . all; do
+            for t in $(cd "$m" && go test -list '^Fuzz' . | grep '^Fuzz'); do
+              echo "== $m $t =="
+              (cd "$m" && go test -run '^$' -fuzz "^$t$" -fuzztime=20s .)
+            done
           done
