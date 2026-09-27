@@ -2,7 +2,6 @@ package parser
 
 import (
 	"strings"
-	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -29,10 +28,8 @@ type referenceResolver struct {
 	// expanded is the destination and title bytes references have expanded to
 	// so far. Every [x] copies its definition into the output, so a long
 	// definition used many times turns kilobytes of input into gigabytes of
-	// output. cmark bounds the total the same way. It is atomic because sealed
-	// parallel workers charge it concurrently.
-	expanded atomic.Int64
-	refused  atomic.Bool
+	// output. cmark bounds the total the same way.
+	expanded int64
 }
 
 // minReferenceExpansion is the expansion budget a small document always has,
@@ -52,8 +49,7 @@ func (r *referenceResolver) resolve(key string) (definition referenceDefinition,
 	if cost == 0 {
 		return definition, true, false
 	}
-	if r.expanded.Add(cost) > max(r.input, minReferenceExpansion) {
-		r.refused.Store(true)
+	if r.expanded += cost; r.expanded > max(r.input, minReferenceExpansion) {
 		return referenceDefinition{}, false, true
 	}
 	return definition, true, false
@@ -102,21 +98,16 @@ func (r *referenceResolver) reset() {
 		r.definitions = nil
 		r.sealed = false
 		r.input = 0
-		r.expanded.Store(0)
-		r.refused.Store(false)
+		r.expanded = 0
 	}
 }
 
-// cloneInto copies r into dst. It writes through a pointer rather than
-// returning a value because the resolver holds atomics, which must not be
-// copied.
+// cloneInto copies r into dst, giving dst its own definitions map.
 func (r *referenceResolver) cloneInto(dst *referenceResolver) {
 	if r == nil {
 		return
 	}
-	dst.sealed, dst.input = r.sealed, r.input
-	dst.expanded.Store(r.expanded.Load())
-	dst.refused.Store(r.refused.Load())
+	dst.sealed, dst.input, dst.expanded = r.sealed, r.input, r.expanded
 	if len(r.definitions) == 0 {
 		return
 	}

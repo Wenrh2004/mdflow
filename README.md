@@ -29,11 +29,11 @@ imports. All modules are versioned in lockstep (`v0.1.0`,
 ## Architecture
 
 `mdflow` is a facade. It owns no syntax and no markup — it wires the layers
-below together and adds the chaining, streaming and fan-out surface.
+below together and adds the chaining and streaming surface.
 
 ```mermaid
 graph TD
-    mdflow["<b>mdflow</b><br/><i>facade: composition, chaining,<br/>streaming, fan-out</i>"]
+    mdflow["<b>mdflow</b><br/><i>facade: composition, chaining,<br/>streaming</i>"]
     extension["<b>extension</b><br/><i>capabilities: GFM · Memos · raw HTML</i>"]
     parser["<b>parser</b><br/><i>state machines, rules,<br/>the extension seam</i>"]
     html["<b>renderer/html</b><br/><i>HTML output</i>"]
@@ -61,7 +61,7 @@ graph TD
 | `renderer` | the `Renderer` interface and its optional capabilities | `token` |
 | `renderer/html` | the HTML implementation | `token`, `renderer` |
 | `extension` | capabilities: syntax paired with the output it produces | `token`, `parser`, `renderer` |
-| `mdflow` | composition, chaining, streaming, fan-out | all |
+| `mdflow` | composition, chaining, streaming | all |
 
 Dependencies point strictly downward — verified as a DAG, no cycles. Note what
 is *absent*: `extension` does not depend on `renderer/html`. It configures
@@ -223,9 +223,8 @@ Block structure is strictly sequential — a line's meaning depends on the
 container stack above it. Most closed leaves proceed directly through inline
 parsing. If one reaches an unresolved reference, its cursor and the suffix
 behind it pause until a later definition resolves it or end of input seals the
-definition map. `Workers` runs only after that map is sealed and immutable; the
-dashed fast path can still bypass the public event stream when no middleware is
-installed.
+definition map. The dashed fast path bypasses the public event stream when no
+middleware is installed.
 
 ---
 
@@ -294,7 +293,6 @@ var forEmail = base.
 | `Map(f)` | rewrite every event |
 | `Filter(pred)` / `Reject(pred)` | keep / drop events |
 | `Tap(f)` | observe events, pass through |
-| `Workers(n)` | fan the inline phase across n cores (see [below](#parallelism-measured-not-assumed)) |
 
 Built-in middlewares: `ShiftHeadings`, `RewriteLinks`, `MapText`, `Drop`,
 `Unwrap`, plus `Compose` to fuse them.
@@ -529,63 +527,34 @@ parses that mdflow does not.
 
 ---
 
-## Parallelism: measured, not assumed
+## Parallelism: across documents, not within one
 
-CommonMark's appendix A notes that block structure is inherently sequential.
-mdflow completes that phase and seals the document's reference definitions
-before fan-out; each worker then parses closed leaves against the same immutable
-resolver. `Workers(n)` distributes that phase — and it is off by default,
-because it only pays under conditions worth stating precisely.
+CommonMark's appendix A notes that block structure is inherently sequential;
+only the inline phase, once reference definitions are sealed, could fan out
+within a single document. mdflow used to offer that as `Workers(n)`. It has
+been removed.
+
+It stopped paying. When the inline scanner got roughly twice as fast, the one
+phase that distributes became a small share of the work: on a 4-vCPU Xeon the
+fan-out bought 1.02×–1.11× on 128 KiB–2 MiB documents at two to three times the
+memory, and on a machine whose cores were already busy it was 18% *slower*
+than staying on one core. An option that is rarely worth enabling, and hurts
+when a server is loaded, costs more to carry — a second render path, worker
+panic plumbing, a reference budget that had to be made order-independent —
+than it returns.
+
+Parallelism belongs one level up. A `Parser` is immutable and safe to share,
+so a server renders many documents on many cores with no coordination at all:
 
 ```go
-md := mdflow.New().Workers(0) // 0 = min(GOMAXPROCS, 4)
-html := md.HTML(bigDoc)       // byte-identical to the sequential path
+var md = mdflow.New()
+
+// called from any number of goroutines at once
+func handle(w http.ResponseWriter, src string) { md.Render(w, src) }
 ```
 
-| Document | Speedup | Memory |
-| --- | ---: | ---: |
-| 128 KiB | 1.02× | +200% |
-| 512 KiB | 1.11× | +196% |
-| 2 MiB | 1.07× | +293% |
-| 128 KiB, all cores busy | **0.82×** (slower) | +204% |
-
-4-vCPU Xeon, dense mixed corpus — one document shape scaled by section count, so
-only size varies. Ratios rather than absolute times, because absolutes say more
-about the machine that ran them than about the library.
-
-These numbers used to read 1.45×–1.98× (Apple M4 Pro, 14 cores). What changed is
-the sequential path: the inline scanner got roughly twice as fast, so the one
-phase that distributes is now a much smaller share of the work — Amdahl in the
-other direction. Worker scaling also peaks early and then regresses (on the M4,
-a 512 KiB document took 9.0 ms on two workers and 11.9 ms on fourteen), which is
-why `Workers(0)` caps itself at four rather than taking every core.
-
-**Granularity is the whole game.** The obvious design — one goroutine per block,
-the classic actor fan-out — is *an order of magnitude slower* than staying on one
-core: a block's few microseconds of work cannot pay for a goroutine handoff, and
-a CPU profile is nothing but `selectgo`, `park_m` and `runqsteal`. This
-implementation instead partitions the block-event stream into one large
-contiguous range per worker, so a single handoff amortises over thousands of
-blocks.
-
-**What it costs.** Fan-out must hold the whole document's block events at once,
-where the sequential path streams them and keeps only the top of the container
-stack. That is the memory column above, and it is why this is opt-in. It also
-cannot be combined with a middleware chain (a `Middleware` may carry state across
-the whole stream), and inputs under 16 KiB fall back to sequential.
-
-> An earlier revision of this code sized the event buffer with a bad heuristic
-> and re-grew it several times per document. That alone made fan-out *slower*
-> than sequential at every size under 512 KiB and cost 2.7× memory. Pooling the
-> buffer across calls is what turned a losing feature into a winning one — worth
-> remembering before concluding that an architecture does not pay.
-
-`TestParallelCrossover` asserts the fan-out still gives ≥1.5× on a document four
-times the threshold, and today it would not. It is opt-in
-(`MDFLOW_TIMING_TESTS=1` on a machine with at least eight cores) because a
-wall-clock ratio on a shared CI runner is noise — but the question it asks is
-live: unless a many-core measurement still shows a clear win, the honest
-response is to delete `Workers` rather than keep an option that does little.
+`BenchmarkParallel` measures exactly that — every core rendering its own
+document through one shared parser.
 
 ---
 

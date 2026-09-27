@@ -38,8 +38,8 @@ func (k URLKind) String() string {
 // and a chat UI that renders it leaks the secret the moment the page loads.
 // Scheme filtering (SafeLinks) cannot see this: the URL is ordinary https.
 //
-// It is called concurrently when a parser renders with Workers, so it must be
-// safe for concurrent use.
+// A Parser is shared across goroutines, so a policy may be called from several
+// at once and must be safe for concurrent use.
 type URLPolicy func(kind URLKind, dest string) (string, bool)
 
 // AllowImageHosts returns a [URLPolicy] that loads images only from the named

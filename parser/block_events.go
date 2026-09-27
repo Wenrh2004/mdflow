@@ -261,26 +261,6 @@ func (s *BlockState) clone() *BlockState {
 	return out
 }
 
-// collectAll parses src to completion and returns every block event at once,
-// which is what the fan-out path needs in order to partition the document.
-//
-// The sequential path never calls this: it streams events and keeps only the
-// open container stack, so materialising the whole document is the memory cost
-// that distinguishes the two. Callers must finish with the returned slice
-// before this BlockState is reused — the slice is its internal buffer, kept and
-// regrown across documents rather than reallocated per parse, which measured
-// larger than everything the fan-out saves.
-func (s *BlockState) collectAll(src string) []token.BlockEvent {
-	all := s.collected[:0]
-	eachLine(src, func(line string) bool {
-		all = append(all, s.feedLine(line)...)
-		return true
-	})
-	all = append(all, s.closeAll()...)
-	s.collected = all // keep the grown array for the next document
-	return all
-}
-
 // isClosingFence recognises the closing fence of the open code block.
 func (s *BlockState) isClosingFence(line blockLine) bool {
 	ind := line.leadingIndent()

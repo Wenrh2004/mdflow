@@ -101,7 +101,7 @@ func (b *Builder) Build() *Parser {
 	for _, t := range b.tweaks {
 		t(spec.Renderer)
 	}
-	return newParser(spec, nil, 0)
+	return newParser(spec, nil)
 }
 
 // ---- options ----

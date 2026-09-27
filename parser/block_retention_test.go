@@ -30,10 +30,6 @@ func TestBlockStateDropsConsumedDocumentReferences(t *testing.T) {
 		}
 	}
 
-	state.collectAll("- " + line + "\n")
-	state.reset(state.rules)
-	assertBlockEventsCleared(t, "parallel collection buffer", state.collected[:cap(state.collected)])
-
 	tag := token.NewTag("block_retention_accumulator")
 	rules := New()
 	rules.AddLeafRule(retentionAccumulatorRule{tag: tag})

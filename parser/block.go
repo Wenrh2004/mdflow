@@ -83,8 +83,6 @@ type BlockState struct {
 	holdingLists bool
 	listDepth    int
 	references   referenceResolver
-
-	collected []token.BlockEvent // whole-document buffer, used only by the fan-out path
 }
 
 func newBlockState(rules *RuleSet) *BlockState { return &BlockState{rules: rules} }
@@ -103,8 +101,6 @@ func (s *BlockState) reset(rules *RuleSet) {
 	s.events = s.events[:0]
 	clear(s.held)
 	s.held = s.held[:0]
-	clear(s.collected)
-	s.collected = s.collected[:0]
 	s.holdingLists = false
 	s.listDepth = 0
 	s.references.reset()
@@ -221,12 +217,6 @@ func (s *BlockState) closeAll() []token.BlockEvent {
 // registered every definition it contains.
 func (s *BlockState) sealReferences() { s.references.seal() }
 
-// referencesRefused reports whether any reference in this document was refused
-// by the expansion budget and rendered as literal text instead. The fan-out
-// path uses it to fall back to document-order rendering, where the budget is
-// charged deterministically.
-func (s *BlockState) referencesRefused() bool { return s.references.refused.Load() }
-
 // heldCount reports how many block events are currently held pending an open
 // list's final tightness. These events have immutable content (the buffer is
 // append-only until the outer list closes), so a streaming consumer can cache
@@ -285,24 +275,6 @@ func (s *BlockState) appendInline(dst []token.Inline, leaf token.Leaf) ([]token.
 	default:
 		return nil, nil
 	}
-}
-
-// parseInlineFinal parses a leaf after sealReferences. It is safe to call from
-// parallel workers because the sealed resolver is read-only and InlineRules
-// owns a concurrency-safe scratch pool.
-func (s *BlockState) parseInlineFinal(leaf token.Leaf) []token.Inline {
-	if !s.references.sealed {
-		panic("mdflow/parser: parseInlineFinal called before sealReferences")
-	}
-	tokens, cursor := s.startInline(leaf)
-	if cursor == nil {
-		return tokens
-	}
-	tokens, complete := cursor.Resume()
-	if !complete {
-		panic("mdflow/parser: sealed document left an unresolved inline cursor")
-	}
-	return tokens
 }
 
 // Total reports how many events have been emitted so far.

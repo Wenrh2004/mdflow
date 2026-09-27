@@ -30,19 +30,12 @@ func (d *blockDriver) state() *BlockState { return (*BlockState)(d) }
 func (d *blockDriver) FeedLine(line string) []token.BlockEvent { return d.state().feedLine(line) }
 func (d *blockDriver) CloseAll() []token.BlockEvent            { return d.state().closeAll() }
 func (d *blockDriver) ReleaseEvents()                          { d.state().releaseEvents() }
-func (d *blockDriver) CollectAll(src string) []token.BlockEvent {
-	return d.state().collectAll(src)
-}
-func (d *blockDriver) SealReferences()              { d.state().sealReferences() }
-func (d *blockDriver) ReferencesRefused() bool      { return d.state().referencesRefused() }
-func (d *blockDriver) HeldCount() int               { return d.state().heldCount() }
-func (d *blockDriver) ReferenceFingerprint() uint64 { return d.state().referenceFingerprint() }
-func (d *blockDriver) Total() int                   { return d.state().total() }
-func (d *blockDriver) Clone() drive.Block           { return (*blockDriver)(d.state().clone()) }
-func (d *blockDriver) Reset()                       { d.state().reset(d.rules) }
-func (d *blockDriver) ParseInlineFinal(leaf token.Leaf) []token.Inline {
-	return d.state().parseInlineFinal(leaf)
-}
+func (d *blockDriver) SealReferences()                         { d.state().sealReferences() }
+func (d *blockDriver) HeldCount() int                          { return d.state().heldCount() }
+func (d *blockDriver) ReferenceFingerprint() uint64            { return d.state().referenceFingerprint() }
+func (d *blockDriver) Total() int                              { return d.state().total() }
+func (d *blockDriver) Clone() drive.Block                      { return (*blockDriver)(d.state().clone()) }
+func (d *blockDriver) Reset()                                  { d.state().reset(d.rules) }
 
 func (d *blockDriver) AppendInline(dst []token.Inline, leaf token.Leaf) ([]token.Inline, drive.Cursor) {
 	tokens, cursor := d.state().appendInline(dst, leaf)

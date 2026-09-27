@@ -133,16 +133,6 @@ func Example_capability() {
 	// <p>call <code class="hl">run()</code> now</p>
 }
 
-func ExampleParser_Workers() {
-	// Fan the inline phase across cores. Output is byte-identical to the
-	// sequential path; only large documents take the fan-out.
-	md := mdflow.New().Workers(4)
-	fmt.Print(md.HTML("# Small doc\n\nfalls back to sequential.\n"))
-	// Output:
-	// <h1>Small doc</h1>
-	// <p>falls back to sequential.</p>
-}
-
 // A Writer streams Markdown into any io.Writer the way gzip.Writer streams
 // compressed bytes: write chunks as they arrive, Close at the end.
 func ExampleParser_NewWriter() {

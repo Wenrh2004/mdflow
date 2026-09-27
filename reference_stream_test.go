@@ -156,22 +156,18 @@ func TestReferenceEventsPullOnlyThroughTheNeededDefinition(t *testing.T) {
 	}
 }
 
-func TestParallelReferencesUseTheSealedDocumentResolver(t *testing.T) {
-	// Keep the definition after enough ordinary blocks to force both the
-	// document driver's suffix compaction and the parallel render path.
+func TestForwardReferenceAcrossManyBlocks(t *testing.T) {
+	// Keep the definition after enough ordinary blocks to force the document
+	// driver's suffix compaction while the first reference waits.
 	src := "[foo]\n\n" + strings.Repeat("ordinary paragraph\n\n", 900) + "[foo]: /url\n"
 	p := mdflow.New()
 	want := p.HTML(src)
-	got := p.Workers(4).HTML(src)
-	if got != want {
-		t.Fatalf("parallel reference output differs from sequential output\n got prefix: %q\nwant prefix: %q", prefix(got), prefix(want))
+	if !strings.HasPrefix(want, `<p><a href="/url">foo</a></p>`+"\n") {
+		t.Fatalf("forward reference was not resolved: %q", prefix(want))
 	}
-	if !strings.HasPrefix(got, `<p><a href="/url">foo</a></p>`+"\n") {
-		t.Fatalf("forward reference was not resolved: %q", prefix(got))
-	}
-	got, err := p.Workers(4).HTMLContext(context.Background(), src)
+	got, err := p.HTMLContext(context.Background(), src)
 	if err != nil || got != want {
-		t.Fatalf("parallel context reference output = %q, %v; want sequential output", prefix(got), err)
+		t.Fatalf("context reference output = %q, %v; want the plain output", prefix(got), err)
 	}
 }
 

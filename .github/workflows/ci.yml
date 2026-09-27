@@ -42,6 +42,11 @@ jobs:
       - name: test (race + cover)
         working-directory: ${{ matrix.module }}
         run: go test -race -cover ./...
+      # Complexity guards compare growth ratios, which the race detector's
+      # nonlinear overhead distorts, so they skip under -race and run here.
+      - name: complexity guards (no race)
+        working-directory: ${{ matrix.module }}
+        run: go test -count=1 -run 'Linear' ./...
 
   lint:
     needs: modules

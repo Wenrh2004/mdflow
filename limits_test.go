@@ -6,27 +6,38 @@ import (
 	"time"
 
 	"github.com/Wenrh2004/mdflow"
-	"github.com/Wenrh2004/mdflow/extension"
-	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/renderer/html"
-	"github.com/Wenrh2004/mdflow/token"
 )
 
 // Deeply nested list items whose remainder looks like a thematic break
-// candidate (`- - - … x`) used to rescan the remainder at every level: 160 KB
-// took seconds. The scan is now once per line, so the whole document costs a
-// fraction of that. The bound is deliberately loose — it separates linear from
-// quadratic by two orders of magnitude, not fast from slow.
+// candidate (`- - - … x`) used to rescan the remainder at every level, so time
+// grew with the square of the nesting depth. The test compares growth rather
+// than absolute time: quadrupling the input should roughly quadruple the work
+// (quadratic would be sixteen-fold), a ratio that survives slow machines.
+// Each size takes the fastest of three runs to shed scheduler noise.
 func TestNestedListMarkersAreLinear(t *testing.T) {
 	if testing.Short() {
-		t.Skip("allocates a large document")
+		t.Skip("allocates large documents")
 	}
+	if raceEnabled {
+		t.Skip("the race detector's overhead does not scale linearly; ratios mean nothing under it")
+	}
+	md := mdflow.New()
+	fastest := func(src string) time.Duration {
+		best := time.Duration(1<<63 - 1)
+		for range 3 {
+			start := time.Now()
+			md.HTML(src)
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	const n = 20_000
 	for _, marker := range []string{"- ", "* ", "_ "} {
-		src := strings.Repeat(marker, 200_000) + "x\n"
-		start := time.Now()
-		mdflow.New().HTML(src)
-		if d := time.Since(start); d > 10*time.Second {
-			t.Errorf("%q nested %d deep took %v; want linear time", marker, 200_000, d)
+		small := fastest(strings.Repeat(marker, n) + "x\n")
+		large := fastest(strings.Repeat(marker, 4*n) + "x\n")
+		if ratio := float64(large) / float64(small); ratio > 8 {
+			t.Errorf("%q: 4x the nesting took %.1fx the time (%v -> %v); want linear growth", marker, ratio, small, large)
 		}
 	}
 }
@@ -54,44 +65,6 @@ func TestReferenceBudgetLeavesOrdinaryDocumentsAlone(t *testing.T) {
 	if got, want := strings.Count(out, `<a href="https://example.com/docs">`), 4_000; got != want {
 		t.Fatalf("resolved %d references, want %d", got, want)
 	}
-}
-
-// Workers charges the expansion budget out of document order; when it bites,
-// the fan-out must fall back so the output is byte-identical to sequential.
-func TestReferenceBudgetIsDeterministicUnderWorkers(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("[x]: /" + strings.Repeat("a", 20_000) + "\n\n")
-	for range 400 {
-		b.WriteString(strings.Repeat("[x] ", 20) + "\n\n")
-	}
-	src := b.String()
-	seq := mdflow.New().HTML(src)
-	par := mdflow.New().Workers(4).HTML(src)
-	if seq != par {
-		t.Fatal("Workers output differs from sequential when the reference budget is exhausted")
-	}
-}
-
-// A panic in a render function running on a fan-out worker must reach the
-// caller's goroutine, where it can be recovered, instead of killing the process.
-func TestWorkerPanicReachesCaller(t *testing.T) {
-	boom := extension.Capability{
-		Name: "boom",
-		Output: func(r renderer.Renderer) {
-			renderer.OverrideNode(r, token.Link, func(w renderer.Writer, n token.Inline) {
-				panic("boom")
-			})
-		},
-	}
-	p := mdflow.New(mdflow.WithExtensions(boom)).Workers(4)
-	src := strings.Repeat("plain paragraph text that pads the document out\n\n", 1_000) + "[x](/y)\n"
-	defer func() {
-		if r := recover(); r != "boom" {
-			t.Fatalf("recovered %v, want the worker's panic", r)
-		}
-	}()
-	p.HTML(src)
-	t.Fatal("HTML returned normally; want the worker's panic")
 }
 
 func TestURLPolicyRefusesImagesButKeepsText(t *testing.T) {

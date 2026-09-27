@@ -12,7 +12,7 @@
 //	renderer/html   the HTML implementation
 //	extension       the capability seam: syntax paired with the output it produces
 //	extension/*      each capability in its own module (table, math, ...)
-//	mdflow          facade: composition, chaining, streaming, fan-out
+//	mdflow          facade: composition, chaining, streaming
 //
 // Dependencies point strictly downward, and none of them is a type assertion in
 // disguise: an extension configures output through the capability interfaces in
@@ -99,16 +99,12 @@
 // predicate — table.IsTable, math.IsMath — while [Tagged] and [TaggedLeaf] build
 // one for any tag, including one your own capability defines.
 //
-// # Parallelism
+// # Concurrency
 //
-// Block structure is inherently sequential. Once that phase is complete and
-// reference definitions are sealed, inline parsing uses one immutable resolver
-// and can distribute across closed leaves. [Parser.Workers] fans it across
-// cores. Since the inline scanner got faster that phase is a small share of the
-// work, so the gain is modest (about 1.1x on large documents) and it can lose
-// on a loaded machine; measure before enabling it. It is opt-in, and falls back
-// to sequential below 16 KiB or when a middleware chain is installed. See
-// [Parser.Workers] for the measured trade-off.
+// A [Parser] is immutable and safe for concurrent use, so the way to use many
+// cores is many documents at once through one shared Parser. There is no
+// within-document parallel mode: block structure is sequential, and the inline
+// phase that could fan out is now too small a share of the work to pay for it.
 //
 // # Supported syntax
 //

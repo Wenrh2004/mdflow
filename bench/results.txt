@@ -45,21 +45,6 @@ BenchmarkGoldmarkReference/mixed-200KB/mdflow-4         	     129	   9270575 ns/
 BenchmarkGoldmarkReference/mixed-200KB/goldmark-4       	      72	  16418973 ns/op	  20.92 MB/s	11001648 B/op	   72554 allocs/op
 BenchmarkGoldmarkReference/prose-46KB/mdflow-4          	    5122	    199820 ns/op	 176.61 MB/s	   57450 B/op	       3 allocs/op
 BenchmarkGoldmarkReference/prose-46KB/goldmark-4        	    2563	    457700 ns/op	  77.10 MB/s	  302601 B/op	    1070 allocs/op
-BenchmarkSequentialVsParallel/8KiB/sequential-4         	    4771	    253678 ns/op	  42.53 MB/s	   49781 B/op	     309 allocs/op
-BenchmarkSequentialVsParallel/8KiB/parallel-4           	    4432	    251932 ns/op	  42.83 MB/s	   49766 B/op	     309 allocs/op
-BenchmarkSequentialVsParallel/32KiB/sequential-4        	    1172	   1045937 ns/op	  41.52 MB/s	  198468 B/op	    1222 allocs/op
-BenchmarkSequentialVsParallel/32KiB/parallel-4          	     950	   1217359 ns/op	  35.68 MB/s	  564433 B/op	    2203 allocs/op
-BenchmarkSequentialVsParallel/128KiB/sequential-4       	     267	   4527632 ns/op	  38.74 MB/s	  783215 B/op	    4875 allocs/op
-BenchmarkSequentialVsParallel/128KiB/parallel-4         	     252	   4421347 ns/op	  39.67 MB/s	 2367670 B/op	    8747 allocs/op
-BenchmarkSequentialVsParallel/512KiB/sequential-4       	      70	  16677755 ns/op	  42.26 MB/s	 3062620 B/op	   19469 allocs/op
-BenchmarkSequentialVsParallel/512KiB/parallel-4         	      80	  15075036 ns/op	  46.75 MB/s	 9058762 B/op	   34860 allocs/op
-BenchmarkSequentialVsParallel/2MiB/sequential-4         	      16	  69154881 ns/op	  41.20 MB/s	12307301 B/op	   77845 allocs/op
-BenchmarkSequentialVsParallel/2MiB/parallel-4           	      21	  64453826 ns/op	  44.20 MB/s	48316280 B/op	  139324 allocs/op
-BenchmarkWorkerScaling/workers=1-4                      	      80	  18630616 ns/op	  37.83 MB/s	 3063957 B/op	   19471 allocs/op
-BenchmarkWorkerScaling/workers=2-4                      	      61	  18717736 ns/op	  37.65 MB/s	 9634334 B/op	   34857 allocs/op
-BenchmarkWorkerScaling/workers=4-4                      	      80	  15287648 ns/op	  46.10 MB/s	 9066039 B/op	   34869 allocs/op
-BenchmarkParallelUnderLoad/sequential-4                 	     807	   1554435 ns/op	 112.83 MB/s	  783456 B/op	    4876 allocs/op
-BenchmarkParallelUnderLoad/parallel-4                   	     577	   1904887 ns/op	  92.08 MB/s	 2382415 B/op	    8740 allocs/op
 dimensions_test.go:139: CommonMark 0.31.2 examples passed: mdflow 652/652, gomark 100/652
 dimensions_test.go:173: attacks passed through unescaped: mdflow 0/5, gomark 0/5
 dimensions_test.go:199: mdflow     adds   464 KiB to a stripped binary

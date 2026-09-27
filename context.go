@@ -22,9 +22,9 @@ import (
 // Cancellation is cooperative and coarse-grained on purpose. Checking
 // ctx.Err() per line would put an atomic load on the hottest loop in the
 // library to serve a case that only matters across many thousands of lines, so
-// the line-driven paths check once every ctxCheckLines lines and the fan-out
-// path checks at its partition boundaries. A cancelled parse stops promptly
-// relative to a human's patience, which is the only clock that matters here.
+// the line-driven paths check once every ctxCheckLines lines. A cancelled parse
+// stops promptly relative to a human's patience, which is the only clock that
+// matters here.
 //
 // A cancelled operation returns whatever it had rendered so far together with
 // ctx.Err(): the string and Render twins may have already written a prefix, and
@@ -81,12 +81,10 @@ func (p *Parser) EventsContext(ctx context.Context, src string) iter.Seq[Event] 
 	return p.chain(raw)
 }
 
-// renderToContext is [Parser.renderTo] with cancellation, mirroring its three
+// renderToContext is [Parser.renderTo] with cancellation, mirroring its two
 // paths so the context spelling makes the same fast/slow choices.
 func (p *Parser) renderToContext(ctx context.Context, w renderer.Writer, src string) error {
 	switch {
-	case p.parallelEligible(src):
-		return p.renderParallelContext(ctx, w, src)
 	case p.chain == nil:
 		return p.renderDirectContext(ctx, w, src)
 	default:

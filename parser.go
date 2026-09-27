@@ -60,7 +60,6 @@ type Parser struct {
 	cfg      *Spec
 	pipeline []Middleware
 	chain    Middleware // pre-composed pipeline, nil when empty
-	workers  int        // >1 enables the fan-out path; see Workers
 	pool     sync.Pool  // drive.Block, keyed to cfg
 }
 
@@ -101,8 +100,8 @@ func NewWith(p *parser.RuleSet, r renderer.Renderer, exts ...extension.Extension
 	return NewBuilder().Rules(p).Renderer(r).Only(exts...).Build()
 }
 
-func newParser(cfg *Spec, pipeline []Middleware, workers int) *Parser {
-	p := &Parser{cfg: cfg, pipeline: pipeline, workers: workers}
+func newParser(cfg *Spec, pipeline []Middleware) *Parser {
+	p := &Parser{cfg: cfg, pipeline: pipeline}
 	if len(pipeline) > 0 {
 		// iterx.Compose is generic over the element type, but Middleware is a
 		// named func type, so a []Middleware will not spread into its variadic
@@ -129,7 +128,7 @@ func newParser(cfg *Spec, pipeline []Middleware, workers int) *Parser {
 func (p *Parser) WithExtensions(exts ...extension.Extension) *Parser {
 	spec := p.cfg.clone()
 	spec.apply(exts...)
-	return newParser(spec, p.pipeline, p.workers)
+	return newParser(spec, p.pipeline)
 }
 
 // With derives a Parser with opts applied on top of the receiver's
@@ -152,7 +151,7 @@ func (p *Parser) With(opts ...Option) *Parser {
 	}
 	b := &Builder{rules: p.cfg.Rules, rend: p.cfg.Renderer}
 	derived := b.With(opts...).Build()
-	return newParser(derived.cfg, p.pipeline, p.workers)
+	return newParser(derived.cfg, p.pipeline)
 }
 
 // Transform derives a Parser with additional event middlewares appended.
@@ -163,7 +162,7 @@ func (p *Parser) Transform(ms ...Middleware) *Parser {
 	next := make([]Middleware, 0, len(p.pipeline)+len(ms))
 	next = append(next, p.pipeline...)
 	next = append(next, ms...)
-	return newParser(p.cfg, next, p.workers)
+	return newParser(p.cfg, next)
 }
 
 // Map derives a Parser that rewrites every event with f.

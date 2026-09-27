@@ -26,14 +26,8 @@ type Block interface {
 	CloseAll() []token.BlockEvent
 	// ReleaseEvents declares the last returned batch consumed.
 	ReleaseEvents()
-	// CollectAll parses src to completion and returns every block event; the
-	// slice is an internal buffer, valid until the Block is reused.
-	CollectAll(src string) []token.BlockEvent
 	// SealReferences declares that no later definition can appear.
 	SealReferences()
-	// ReferencesRefused reports whether the expansion budget refused any
-	// reference in this document.
-	ReferencesRefused() bool
 	// HeldCount is the number of events held for an open list's tightness.
 	HeldCount() int
 	// ReferenceFingerprint is an order-independent hash of every definition.
@@ -41,9 +35,6 @@ type Block interface {
 	// AppendInline parses one closed leaf into dst[:0]. It returns a Cursor
 	// only when the scan paused on a reference that may still be defined.
 	AppendInline(dst []token.Inline, leaf token.Leaf) ([]token.Inline, Cursor)
-	// ParseInlineFinal parses a leaf after SealReferences; safe for concurrent
-	// use by the fan-out workers.
-	ParseInlineFinal(leaf token.Leaf) []token.Inline
 	// Total is the number of block events emitted so far.
 	Total() int
 	// Clone snapshots the machine for a speculative (provisional) parse.

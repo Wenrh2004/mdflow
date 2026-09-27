@@ -41,8 +41,6 @@ func (p *Parser) Render(w io.Writer, src string) error {
 // pay-for-what-you-use.
 func (p *Parser) renderTo(w renderer.Writer, src string) {
 	switch {
-	case p.parallelEligible(src):
-		p.renderParallel(w, src)
 	case p.chain == nil:
 		p.renderDirect(w, src)
 	default:
@@ -55,17 +53,6 @@ func (p *Parser) renderTo(w renderer.Writer, src string) {
 func (p *Parser) writeDocumentEvent(w renderer.Writer, ev token.BlockEvent, inlines []token.Inline) {
 	if ev.Type == token.LeafBlock {
 		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, inlines)
-	} else {
-		p.cfg.Renderer.RenderContainer(w, ev)
-	}
-}
-
-// writeFinalEvent is the sealed-resolver spelling used by parallel workers.
-// No cursor can escape ParseInlineFinal, so workers share BlockState only for
-// immutable reference lookup.
-func (p *Parser) writeFinalEvent(w renderer.Writer, blocks drive.Block, ev token.BlockEvent) {
-	if ev.Type == token.LeafBlock {
-		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, blocks.ParseInlineFinal(ev.Leaf))
 	} else {
 		p.cfg.Renderer.RenderContainer(w, ev)
 	}

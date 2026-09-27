@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Wenrh2004/mdflow"
@@ -184,17 +186,18 @@ func TestContextCancelledMidParse(t *testing.T) {
 	}
 }
 
-func TestContextCancelParallel(t *testing.T) {
-	p := mdflow.New().Workers(4)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	src := bigDoc(20000) // well over parallelMinBytes
-	got, err := p.HTMLContext(ctx, src)
-	if err != context.Canceled {
-		t.Errorf("err = %v, want context.Canceled", err)
+// bigDoc builds a dense mixed document of the given number of sections, large
+// enough for the line-driven paths to reach their periodic cancellation checks.
+func bigDoc(sections int) string {
+	var b strings.Builder
+	for i := 0; i < sections; i++ {
+		s := strconv.Itoa(i)
+		b.WriteString("## Section " + s + "\n\n")
+		b.WriteString("Prose with *emphasis*, **strong**, `code`, [a link](https://x.dev/" + s +
+			") and an autolink <https://go.dev/" + s + ">.\n\n")
+		b.WriteString("```go\nfunc f" + s + "() {}\n```\n\n")
+		b.WriteString("- one\n- two\n\n> quoted **text**\n\n")
+		b.WriteString("1. first\n2. second\n\n")
 	}
-	if got != "" {
-		t.Errorf("cancelled parallel HTMLContext returned %d bytes, want none", len(got))
-	}
+	return b.String()
 }
