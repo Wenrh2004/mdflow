@@ -434,7 +434,7 @@ hashtags, highlights, strikethrough and inline math — and
 
 Binary size is the one row mdflow does not win, and the reason is the first
 row: a complete CommonMark implementation carries the HTML entity table and
-the Unicode case-folding table the spec requires. See the roadmap for what can
+the Unicode case-folding table the spec requires. See [#17](https://github.com/Wenrh2004/mdflow/issues/17) for what can
 still be trimmed.
 
 For reference, against [goldmark](https://github.com/yuin/goldmark) v1.8.6 —
