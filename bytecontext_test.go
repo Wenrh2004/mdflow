@@ -3,6 +3,7 @@ package mdflow_test
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/Wenrh2004/mdflow"
@@ -64,8 +65,8 @@ func TestBytesMatchesString(t *testing.T) {
 	}
 
 	// The lazy sequences must agree event for event.
-	gotE := iterx.Collect(p.EventsBytes(b))
-	wantE := iterx.Collect(p.Events(src))
+	gotE := slices.Collect(p.EventsBytes(b))
+	wantE := slices.Collect(p.Events(src))
 	if len(gotE) != len(wantE) {
 		t.Fatalf("EventsBytes len %d != Events len %d", len(gotE), len(wantE))
 	}
@@ -75,8 +76,8 @@ func TestBytesMatchesString(t *testing.T) {
 		}
 	}
 
-	gotB := iterx.Collect(p.BlocksBytes(b))
-	wantB := iterx.Collect(p.Blocks(src))
+	gotB := slices.Collect(p.BlocksBytes(b))
+	wantB := slices.Collect(p.Blocks(src))
 	if len(gotB) != len(wantB) {
 		t.Fatalf("BlocksBytes len %d != Blocks len %d", len(gotB), len(wantB))
 	}
@@ -128,8 +129,8 @@ func TestContextMatchesPlain(t *testing.T) {
 		t.Errorf("HeadingsContext len %d != Headings len %d", len(hs), len(want))
 	}
 
-	got2 := iterx.Collect(p.EventsContext(ctx, corpus))
-	want2 := iterx.Collect(p.Events(corpus))
+	got2 := slices.Collect(p.EventsContext(ctx, corpus))
+	want2 := slices.Collect(p.Events(corpus))
 	if len(got2) != len(want2) {
 		t.Fatalf("EventsContext len %d != Events len %d", len(got2), len(want2))
 	}

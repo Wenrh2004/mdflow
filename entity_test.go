@@ -70,7 +70,7 @@ func TestInlineCharacterReferenceBoundaries(t *testing.T) {
 			"&#12345678; i &#x1234567; j &amp k",
 	}
 
-	gotText := iterx.Collect(iterx.FilterMap(mdflow.New().Events(src), func(e mdflow.Event) (string, bool) {
+	gotText := slices.Collect(iterx.FilterMap(mdflow.New().Events(src), func(e mdflow.Event) (string, bool) {
 		return e.Text, e.Type == mdflow.TextEvent
 	}))
 	if !slices.Equal(gotText, wantText) {
@@ -87,7 +87,7 @@ func TestDecodedCharacterReferencesAreNotReparsedAsMarkup(t *testing.T) {
 
 func TestCommonMarkExample32DecodesLinkDestinationAndTitle(t *testing.T) {
 	const src = "[foo](/f&ouml;&ouml; \"f&ouml;&ouml;\")\n"
-	links := iterx.Collect(iterx.Filter(mdflow.New().Events(src), func(e mdflow.Event) bool {
+	links := slices.Collect(iterx.Filter(mdflow.New().Events(src), func(e mdflow.Event) bool {
 		return e.Type == mdflow.EnterEvent && e.Node == token.Link
 	}))
 	if len(links) != 1 {

@@ -20,8 +20,8 @@ import (
 // referenceTag is inline and atomic (it carries its own text); embedTag is a
 // literal leaf block. Allocated by name.
 var (
-	referenceTag = token.NewAtomicTag("reference")
-	embedTag     = token.NewTag("embed")
+	referenceTag = token.NewAtomicTag("github.com/Wenrh2004/mdflow/extension/resource.reference")
+	embedTag     = token.NewTag("github.com/Wenrh2004/mdflow/extension/resource.embed")
 )
 
 // Resource is the wiki-resource capability: `[[reference]]` and `![[embed]]`.
@@ -48,7 +48,7 @@ func IsResource(e mdflow.Event) bool {
 
 // referenceScanTag keys the per-parse memo below. It is a private tag used only
 // as a memo slot key, never emitted or rendered.
-var referenceScanTag = token.NewTag("resource.reference.scan")
+var referenceScanTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/resource.resource.reference.scan")
 
 // referenceScanMemo caches the offset from which the remaining source is known
 // to contain no closing "]]". A run of unmatched "[[" would otherwise rescan the

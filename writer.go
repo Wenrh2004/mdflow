@@ -72,7 +72,7 @@ func (w *Writer) Close() error {
 	if err := w.check(); err != nil {
 		return err
 	}
-	err := w.emit(w.s.Close())
+	err := w.emit(w.s.Finish())
 	if err == nil {
 		w.err = ErrClosed
 	}

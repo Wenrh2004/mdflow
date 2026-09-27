@@ -316,7 +316,7 @@ func TestRawHTMLStreamMatchesBatch(t *testing.T) {
 			want := p.HTML(src)
 			for split := 0; split <= len(src); split++ {
 				s := p.Stream()
-				got := s.Feed(src[:split]) + s.Feed(src[split:]) + s.Close()
+				got := s.Feed(src[:split]) + s.Feed(src[split:]) + s.Finish()
 				if got != want {
 					t.Fatalf("split %d of %q\n got: %q\nwant: %q", split, src, got, want)
 				}
@@ -330,7 +330,7 @@ func TestRawHTMLStreamMatchesBatch(t *testing.T) {
 					t.Fatalf("prefix %d of %q\n got: %q\nwant: %q", i+1, src, got, wantPrefix)
 				}
 			}
-			if got := committed + s.Close(); got != want {
+			if got := committed + s.Finish(); got != want {
 				t.Fatalf("byte stream close for %q\n got: %q\nwant: %q", src, got, want)
 			}
 		}

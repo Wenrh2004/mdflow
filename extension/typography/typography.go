@@ -20,10 +20,10 @@ import (
 
 // The four wrapper tags, each paired (open/close). Allocated by name.
 var (
-	highlightTag   = token.NewTag("highlight")
-	subscriptTag   = token.NewTag("subscript")
-	superscriptTag = token.NewTag("superscript")
-	spoilerTag     = token.NewTag("spoiler")
+	highlightTag   = token.NewTag("github.com/Wenrh2004/mdflow/extension/typography.highlight")
+	subscriptTag   = token.NewTag("github.com/Wenrh2004/mdflow/extension/typography.subscript")
+	superscriptTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/typography.superscript")
+	spoilerTag     = token.NewTag("github.com/Wenrh2004/mdflow/extension/typography.spoiler")
 )
 
 // Typography is the wrapper capability: highlight, sub/superscript and spoiler.

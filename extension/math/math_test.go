@@ -77,7 +77,7 @@ func TestMathBlockSurvivesStreaming(t *testing.T) {
 		for i := 0; i < len(src); i += chunk {
 			got.WriteString(s.Feed(src[i:min(i+chunk, len(src))]))
 		}
-		got.WriteString(s.Close())
+		got.WriteString(s.Finish())
 		if got.String() != want {
 			t.Errorf("chunk=%d\n got: %q\nwant: %q", chunk, got.String(), want)
 		}

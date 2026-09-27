@@ -1,6 +1,7 @@
 package mdflow_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -114,7 +115,7 @@ func TestLinkSourceUnescapeIsSinglePassAndEventsStayDecoded(t *testing.T) {
 	p := mdflow.New()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			links := iterx.Collect(iterx.Filter(p.Events(tc.markdown), func(e mdflow.Event) bool {
+			links := slices.Collect(iterx.Filter(p.Events(tc.markdown), func(e mdflow.Event) bool {
 				return e.Type == mdflow.EnterEvent && e.Node == token.Link
 			}))
 			if len(links) != 1 {
@@ -158,7 +159,7 @@ func TestStreamNormalizesAfterRejoiningSplitUTF8(t *testing.T) {
 	var got strings.Builder
 	got.WriteString(s.Feed(src[:split]))
 	got.WriteString(s.Feed(src[split:]))
-	got.WriteString(s.Close())
+	got.WriteString(s.Finish())
 
 	const want = "<p><a href=\"caf%C3%A9\">x</a></p>\n"
 	if got.String() != want {

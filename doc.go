@@ -83,7 +83,7 @@
 // # Functional style
 //
 // The event stream is an [iter.Seq], so it composes with ordinary Go. The
-// generic combinators (iterx.Map, iterx.Filter, iterx.Reduce, iterx.Collect,
+// generic combinators (iterx.Map, iterx.Filter, iterx.Reduce,
 // iterx.Take, ...) live in package [github.com/Wenrh2004/mdflow/iterx] as free
 // functions, because Go does not permit type parameters on methods.
 //

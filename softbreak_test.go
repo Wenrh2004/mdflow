@@ -2,10 +2,10 @@ package mdflow_test
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/Wenrh2004/mdflow"
-	"github.com/Wenrh2004/mdflow/iterx"
 	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/renderer/text"
 	"github.com/Wenrh2004/mdflow/token"
@@ -15,7 +15,7 @@ func TestSoftBreakIsAnAtomicEvent(t *testing.T) {
 	const src = "a\nb\n"
 	p := mdflow.New()
 
-	gotEvents := iterx.Collect(p.Events(src))
+	gotEvents := slices.Collect(p.Events(src))
 	wantEvents := []mdflow.Event{
 		{Type: mdflow.EnterEvent, Node: token.Paragraph, Content: "a\nb"},
 		{Type: mdflow.TextEvent, Node: token.Text, Text: "a"},

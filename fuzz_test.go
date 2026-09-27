@@ -76,7 +76,7 @@ func FuzzStreamMatchesBatch(f *testing.F) {
 		for i := 0; i < len(src); i += chunk {
 			got.WriteString(s.Feed(src[i:min(i+chunk, len(src))]))
 		}
-		got.WriteString(s.Close())
+		got.WriteString(s.Finish())
 		if got.String() != want {
 			t.Errorf("stream != batch\n src: %q chunk=%d\n got: %q\nwant: %q", src, chunk, got.String(), want)
 		}

@@ -22,8 +22,8 @@ import (
 // mathTag is inline (atomic: a single token, no closing counterpart);
 // mathBlockTag is a literal leaf block. Both are allocated by name.
 var (
-	mathTag      = token.NewAtomicTag("math")
-	mathBlockTag = token.NewTag("math_block")
+	mathTag      = token.NewAtomicTag("github.com/Wenrh2004/mdflow/extension/math.math")
+	mathBlockTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/math.math_block")
 )
 
 // Math is the math capability: inline `$x$` and `$$` blocks with their HTML.

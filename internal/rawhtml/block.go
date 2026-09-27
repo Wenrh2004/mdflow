@@ -11,15 +11,15 @@ import (
 // the currently open block terminates. Finalisation projects every one of them
 // to the single public BlockTag above.
 var (
-	accScript      = token.NewTag("raw_html_acc_script")
-	accPre         = token.NewTag("raw_html_acc_pre")
-	accStyle       = token.NewTag("raw_html_acc_style")
-	accTextarea    = token.NewTag("raw_html_acc_textarea")
-	accComment     = token.NewTag("raw_html_acc_comment")
-	accInstruction = token.NewTag("raw_html_acc_instruction")
-	accDeclaration = token.NewTag("raw_html_acc_declaration")
-	accCDATA       = token.NewTag("raw_html_acc_cdata")
-	accBlank       = token.NewTag("raw_html_acc_blank")
+	accScript      = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_script")
+	accPre         = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_pre")
+	accStyle       = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_style")
+	accTextarea    = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_textarea")
+	accComment     = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_comment")
+	accInstruction = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_instruction")
+	accDeclaration = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_declaration")
+	accCDATA       = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_cdata")
+	accBlank       = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_blank")
 )
 
 var accumulatorTags = [...]token.Tag{

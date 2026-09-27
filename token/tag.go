@@ -1,6 +1,7 @@
 package token
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -14,16 +15,25 @@ import (
 // A Tag is a small integer, not a string. Every node past CommonMark carries one
 // and every renderer dispatches on one, so it sits on the hottest paths in the
 // library twice over: as a field on [Inline], [Leaf] and [BlockEvent], and as
-// the key a renderer looks its handler up by. As an integer it costs one byte in
-// those structs instead of a sixteen-byte string header, and dispatch is a slice
-// index instead of a string hash.
+// the key a renderer looks its handler up by. As an integer it costs two bytes
+// in those structs — which fit in padding they already had — instead of a
+// sixteen-byte string header, and dispatch is a slice index instead of a string
+// hash.
 //
 // The core vocabulary names no extension. A capability allocates its own tag
 // with [NewTag] (or [NewAtomicTag]) at configuration time, and the parser rule
 // and the renderer registration that make up that capability each ask for it by
 // name — idempotently, so they agree without a shared constant. The zero value
 // means "no tag" and belongs to every non-custom node.
-type Tag uint8
+//
+// Because the name is the identity, two unrelated extensions that pick the same
+// name share a tag. Qualify names with the defining package's import path, as
+// encoding/gob does for registered types:
+//
+//	var cellTag = token.NewTag("example.com/mdext/table.cell")
+//
+// Every bundled capability does.
+type Tag uint16
 
 // The one reserved tag. Everything past it is allocated by [NewTag]; the core
 // defines no others, so an extension lives in a module of its own with no tag
@@ -108,9 +118,11 @@ var registry = struct {
 // and a renderer can each ask for their tag independently and agree. Call it
 // during initialisation or configuration — never per document.
 //
-// The tag space is one byte. NewTag panics once it is exhausted, which no
-// realistic set of extensions reaches and a loop calling it with fresh names
-// does immediately.
+// NewTag panics if name was already registered by [NewAtomicTag]: the two
+// halves of a capability disagreeing about a node's shape is a programming
+// error that would otherwise render one node as two. It also panics once all
+// 65535 tags are taken, which no realistic set of extensions reaches and a loop
+// calling it with fresh names eventually does.
 func NewTag(name string) Tag { return newTag(name, false) }
 
 // NewAtomicTag is [NewTag] for a node emitted as a single token with no closing
@@ -121,10 +133,13 @@ func newTag(name string, isAtomic bool) Tag {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	if t, ok := registry.byName[name]; ok {
+		if registry.atomic[t] != isAtomic {
+			panic("mdflow/token: tag " + strconv.Quote(name) + " registered as both atomic and paired")
+		}
 		return t
 	}
-	if len(registry.names) >= 1<<8 {
-		panic("mdflow/token: tag space exhausted (255 tags)")
+	if len(registry.names) >= 1<<16 {
+		panic("mdflow/token: tag space exhausted (65535 tags)")
 	}
 	t := Tag(len(registry.names))
 	registry.byName[name] = t

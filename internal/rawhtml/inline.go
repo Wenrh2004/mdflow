@@ -11,7 +11,7 @@ import (
 // match stays one atomic token containing the exact source spelling.
 type inlineRule struct{}
 
-var inlineMemoTag = token.NewTag("raw_html_inline_memo")
+var inlineMemoTag = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_inline_memo")
 
 func (inlineRule) Name() string     { return "raw_html" }
 func (inlineRule) Triggers() []byte { return []byte{'<'} }

@@ -54,6 +54,6 @@ func stream(p *mdflow.Parser, src string, chunk int) string {
 		_ = s.Provisional()
 		src = src[n:]
 	}
-	b.WriteString(s.Close())
+	b.WriteString(s.Finish())
 	return b.String()
 }

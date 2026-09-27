@@ -46,7 +46,7 @@ func TestStreamReferenceDefinitionUnlocksEarliestPendingSuffix(t *testing.T) {
 	if got, want := s.Feed("[foo]: /url\n\n"), "<p><a href=\"/url\">foo</a></p>\n"; got != want {
 		t.Fatalf("matching definition did not unlock the earliest suffix\n got: %q\nwant: %q", got, want)
 	}
-	if got := s.Close(); got != "" {
+	if got := s.Finish(); got != "" {
 		t.Fatalf("definition-only tail rendered at close: %q", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestStreamReferenceProvisionalFinalisesOnlyItsClone(t *testing.T) {
 	if got := s.Provisional(); got != want {
 		t.Fatalf("repeated provisional mutated live state\n got: %q\nwant: %q", got, want)
 	}
-	if got := s.Close(); got != want {
+	if got := s.Finish(); got != want {
 		t.Fatalf("live close was polluted by provisional state\n got: %q\nwant: %q", got, want)
 	}
 }
@@ -87,7 +87,7 @@ func TestRepeatedProvisionalClonesInlineMemoState(t *testing.T) {
 	if got := s.Feed("[ref]: /url\n\n"); got != committed {
 		t.Fatalf("live cursor inherited provisional memo mutations\n got: %q\nwant: %q", got, committed)
 	}
-	if got := s.Close(); got != "" {
+	if got := s.Finish(); got != "" {
 		t.Fatalf("definition-only tail rendered at close: %q", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestRepeatedProvisionalClonesBacktickFrontier(t *testing.T) {
 	if got := s.Feed("[ref]: /url\n\n"); got != committed {
 		t.Fatalf("live cursor inherited provisional backtick frontier\n got: %q\nwant: %q", got, committed)
 	}
-	if got := s.Close(); got != "" {
+	if got := s.Finish(); got != "" {
 		t.Fatalf("definition-only tail rendered at close: %q", got)
 	}
 }
@@ -124,7 +124,7 @@ func TestStreamMissingReferenceStaysTentativeUntilEOF(t *testing.T) {
 	if got := s.Provisional(); got != want {
 		t.Fatalf("provisional missing-reference fallback\n got: %q\nwant: %q", got, want)
 	}
-	if got := s.Close(); got != want {
+	if got := s.Finish(); got != want {
 		t.Fatalf("EOF missing-reference fallback\n got: %q\nwant: %q", got, want)
 	}
 }

@@ -111,7 +111,7 @@ func TestStreamLineEndingsAcrossChunks(t *testing.T) {
 					t.Fatalf("after chunk %d %q: committed + provisional = %q, want batch prefix %q", i, chunk, got, want)
 				}
 			}
-			committed.WriteString(s.Close())
+			committed.WriteString(s.Finish())
 			if got, want := committed.String(), p.HTML(src.String()); got != want {
 				t.Fatalf("closed stream = %q, want batch %q", got, want)
 			}
@@ -135,7 +135,7 @@ func TestStreamLineEndingBoundaries(t *testing.T) {
 				src.WriteString(chunk)
 				got.WriteString(s.Feed(chunk))
 			}
-			got.WriteString(s.Close())
+			got.WriteString(s.Finish())
 			if want := p.HTML(src.String()); got.String() != want {
 				t.Fatalf("stream = %q, want batch %q", got.String(), want)
 			}

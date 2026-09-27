@@ -2,7 +2,6 @@ package mdflow
 
 import (
 	"context"
-	"io"
 	"runtime"
 	"strings"
 	"sync"
@@ -186,23 +185,6 @@ func (p *Parser) renderParallelContext(ctx context.Context, w renderer.Writer, s
 		w.WriteString(bufs[i].String())
 	}
 	return nil
-}
-
-// HTMLParallel renders src using the fan-out path regardless of the configured
-// worker count, using runtime.GOMAXPROCS(0) goroutines. It is the explicit form
-// of Workers(0).HTML; the size and pipeline fallbacks still apply.
-//
-// Deprecated: Use p.Workers(0).HTML(src), which states the same thing in the
-// chain and composes with every other terminal operation.
-func (p *Parser) HTMLParallel(src string) string {
-	return p.Workers(0).HTML(src)
-}
-
-// RenderParallel is HTMLParallel streaming into w.
-//
-// Deprecated: Use p.Workers(0).Render(w, src).
-func (p *Parser) RenderParallel(w io.Writer, src string) error {
-	return p.Workers(0).Render(w, src)
 }
 
 // renderParallelForced runs the fan-out path ignoring the size threshold. It

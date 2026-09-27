@@ -26,11 +26,11 @@ import (
 // TagTable doubles as the accumulating leaf's tag and the outer container's tag:
 // finalisers are keyed by the leaf's tag, so closing the leaf runs finaliseTable.
 var (
-	tableTag     = token.NewTag("table")
-	tableHeadTag = token.NewTag("table_head")
-	tableBodyTag = token.NewTag("table_body")
-	tableRowTag  = token.NewTag("table_row")
-	tableCellTag = token.NewTag("table_cell")
+	tableTag     = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table")
+	tableHeadTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_head")
+	tableBodyTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_body")
+	tableRowTag  = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_row")
+	tableCellTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_cell")
 )
 
 // tableScratch is the per-table state a rule writes at open and a finaliser

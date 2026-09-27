@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Wenrh2004/mdflow"
@@ -49,7 +50,7 @@ func ExampleParser_Stream() {
 	for _, chunk := range []string{"# Str", "eaming\n\nfir", "st para\n\nsecond"} {
 		out.WriteString(s.Feed(chunk))
 	}
-	out.WriteString(s.Close())
+	out.WriteString(s.Finish())
 
 	fmt.Print(out.String())
 	// Output:
@@ -103,7 +104,7 @@ func ExampleReduce() {
 func ExampleFilterMap() {
 	src := "See [go](https://go.dev) and [rust](https://rust-lang.org).\n"
 
-	links := iterx.Collect(iterx.FilterMap(mdflow.Events(src),
+	links := slices.Collect(iterx.FilterMap(mdflow.Events(src),
 		func(e mdflow.Event) (string, bool) {
 			if e.Type == mdflow.EnterEvent && e.Node == token.Link {
 				return e.Dest, true

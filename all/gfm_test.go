@@ -78,7 +78,7 @@ func TestStreamMatchesBatchWithTable(t *testing.T) {
 		for i := 0; i < len(src); i += chunk {
 			got.WriteString(s.Feed(src[i:min(i+chunk, len(src))]))
 		}
-		got.WriteString(s.Close())
+		got.WriteString(s.Finish())
 		if got.String() != want {
 			t.Errorf("chunk=%d\n got: %q\nwant: %q", chunk, got.String(), want)
 		}
@@ -99,7 +99,7 @@ func TestStreamProvisionalTable(t *testing.T) {
 		}
 	}
 	// The probe must not disturb the real state: a body row still lands.
-	final := s.Feed("| 1 | 2 |\n") + s.Close()
+	final := s.Feed("| 1 | 2 |\n") + s.Finish()
 	if !strings.Contains(final, "<td>1</td>") || !strings.Contains(final, "<td>2</td>") {
 		t.Errorf("real parse lost the body row after Provisional: %q", final)
 	}

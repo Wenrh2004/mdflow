@@ -11,6 +11,9 @@
 //
 // Every combinator is lazy: nothing runs until the sequence is ranged over, and
 // breaking out of the range stops the producer at once.
+//
+// What the standard library already provides is not repeated here: materialise
+// a sequence with slices.Collect.
 package iterx
 
 import "iter"
@@ -92,15 +95,6 @@ func Reduce[A, B any](seq iter.Seq[A], init B, f func(B, A) B) B {
 		acc = f(acc, v)
 	}
 	return acc
-}
-
-// Collect materialises a sequence into a slice.
-func Collect[A any](seq iter.Seq[A]) []A {
-	var out []A
-	for v := range seq {
-		out = append(out, v)
-	}
-	return out
 }
 
 // Each runs f for every element. It is Reduce with no accumulator.

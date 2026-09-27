@@ -168,15 +168,19 @@ established rather than inventing a `Kind`-prefix scheme:
 | Node kinds | unprefixed — the package name is the qualifier | `reflect.Kind` → `reflect.Int` | `token.Heading`, `token.Link` |
 | Event types | `-Event` suffix | `html.NodeType` → `html.TextNode` | `mdflow.EnterEvent`, `mdflow.TextEvent` |
 | Block ops | `-Block` suffix | as above | `token.OpenBlock`, `token.LeafBlock` |
-| Extension tags | `Tag` prefix, naming the node not its markup | — | `token.TagStrikethrough`, `token.TagTable` |
+| Extension tags | import path + node name, naming the node not its markup | `gob.Register` type names | `token.NewTag(".../extension/table.cell")` |
 
 `token.KindHeading` would be stutter: the package already says `token`. The
 suffix on the event enum is not decoration either — it is what lets `token.Text`
 (a node) and `mdflow.TextEvent` (an event) coexist without collision.
 
-Tags name what the author wrote, never how it renders: `"strikethrough"`, not
-`"del"`. A terminal renderer strikes the run and a JSON renderer emits a type
-field, and neither should be handed a vocabulary of HTML element names.
+Tags name what the author wrote, never how it renders: `strikethrough`, not
+`del`. A terminal renderer strikes the run and a JSON renderer emits a type
+field, and neither should be handed a vocabulary of HTML element names. The
+name is also the tag's identity — the syntax half and the output half of a
+capability each ask for it and agree — so it is qualified by the defining
+package's import path, and two unrelated extensions cannot collide by both
+choosing `table`.
 
 The package is `token` and not `ast` because there is no tree. An `Inline`
 carries a `Close` flag instead of children — the representation a syntax tree
@@ -304,7 +308,7 @@ generic combinators live in `iterx` as free functions, because Go does not allow
 type parameters on methods.
 
 ```go
-links := iterx.Collect(iterx.FilterMap(mdflow.Events(src),
+links := slices.Collect(iterx.FilterMap(mdflow.Events(src),
     func(e mdflow.Event) (string, bool) {
         return e.Dest, e.Type == mdflow.EnterEvent && e.Node == token.Link
     }))
@@ -321,7 +325,10 @@ the bundled capabilities; `Tagged` and `TaggedLeaf` build a predicate for any
 other, including one your own capability defines.
 
 `iterx.Map` · `FilterMap` · `Filter` · `Reject` · `TakeWhile` · `Take` ·
-`Reduce` · `Collect` · `Each` · `Count` · `Find` · `Compose`
+`Reduce` · `Each` · `Count` · `Find` · `Compose`
+
+Materialise a sequence with the standard library's `slices.Collect`; `iterx`
+does not duplicate it.
 
 Prebuilt folds: `Text(src)` (markup-stripped plain text) and `Headings(src)`
 (the outline), each in a single pass with no rendering.
@@ -333,7 +340,7 @@ s := md.Stream()
 for chunk := range llmTokens {
     io.WriteString(w, s.Feed(chunk)) // HTML that just became final
 }
-io.WriteString(w, s.Close())
+io.WriteString(w, s.Finish())
 ```
 
 `Provisional()` renders the not-yet-closed tail, so a UI always has something
