@@ -18,6 +18,14 @@ type blockLine struct {
 
 func newBlockLine(raw string) blockLine { return blockLine{raw: raw} }
 
+// lineFrom rebuilds the internal view of a public Line, keeping its column so
+// tab stops stay absolute.
+func lineFrom(l Line) blockLine { return blockLine{raw: l.Text, column: l.Column} }
+
+// public is the rule-facing view of the remainder. A tab split by structural
+// indentation materialises as spaces in Text, and Column is where they start.
+func (l blockLine) public() Line { return Line{Text: l.Text(), Column: l.column} }
+
 func tabWidth(column int) int { return 4 - column%4 }
 
 // Text returns the visible remainder. The ordinary path is a substring of raw;

@@ -6,6 +6,19 @@ import (
 
 // ---- rule interfaces (public, for extensions) ----
 
+// Line is what a block rule sees of one source line: the text left once the
+// open containers' prefixes (`> `, list indentation) are stripped, and the
+// visual column that text starts at.
+//
+// Column matters because CommonMark expands tabs to stops every four columns
+// counted from the start of the *source* line, not of the remainder: a tab
+// after `> ` is worth two columns, not four. A rule that measures indentation
+// must count from Column; one that does not can read Text alone.
+type Line struct {
+	Text   string // the remainder, container prefixes stripped, no line ending
+	Column int    // zero-based visual column of Text[0] in the source line
+}
+
 // ContainerRule tries to open a container block at the current line.
 //
 // Continuation of the *built-in* container kinds lives in continueContainer;
@@ -14,8 +27,8 @@ import (
 type ContainerRule interface {
 	Name() string
 	// Open tries to open a container; on success it returns the remainder of
-	// the line with the marker stripped.
-	Open(s *BlockState, line string) (rest string, ok bool)
+	// the line — a suffix of line.Text — with the marker stripped.
+	Open(s *BlockState, line Line) (rest string, ok bool)
 }
 
 // LeafRule tries to classify one line (container prefixes already stripped)
@@ -23,7 +36,7 @@ type ContainerRule interface {
 type LeafRule interface {
 	Name() string
 	// Open returns true if it consumed the line.
-	Open(s *BlockState, line string) bool
+	Open(s *BlockState, line Line) bool
 }
 
 // ParagraphInterruptor is an optional capability for block rules to state
@@ -39,16 +52,7 @@ type LeafRule interface {
 // Implementations must be pure. Open remains the operation that mutates the
 // parse state after the parser has committed to classifying the line.
 type ParagraphInterruptor interface {
-	InterruptsParagraph(line string) bool
-}
-
-// ColumnParagraphInterruptor is the column-aware counterpart to
-// ParagraphInterruptor for syntax whose decision depends on CommonMark's
-// absolute four-column tab stops. column is the zero-based visual column where
-// line begins. Implementations must remain pure; this capability exists because
-// the mutating BlockState is deliberately absent from interruption probes.
-type ColumnParagraphInterruptor interface {
-	InterruptsParagraphAt(line string, column int) bool
+	InterruptsParagraph(line Line) bool
 }
 
 // InlineRule parses one inline construct.
@@ -87,7 +91,7 @@ type RuleSet struct {
 
 // Continuation claims the current line for an already-open multi-line leaf.
 // It returns true when it consumed the line.
-type Continuation func(s *BlockState, line string) bool
+type Continuation func(s *BlockState, line Line) bool
 
 // finalise is the stored, type-erased finaliser. Its scratch is boxed as any so
 // one map can hold finalisers over different scratch types; [AddFinalise] is the

@@ -132,7 +132,8 @@ func TestStreamMissingReferenceStaysTentativeUntilEOF(t *testing.T) {
 type referenceSentinelRule struct{ opened *int }
 
 func (r referenceSentinelRule) Name() string { return "reference_test_sentinel" }
-func (r referenceSentinelRule) Open(s *parser.BlockState, line string) bool {
+func (r referenceSentinelRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if line != "SENTINEL" {
 		return false
 	}

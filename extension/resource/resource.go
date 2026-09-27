@@ -108,11 +108,13 @@ func (referenceRule) Match(s *parser.InlineState) bool {
 type embedRule struct{}
 
 func (embedRule) Name() string { return "embed" }
-func (embedRule) InterruptsParagraph(line string) bool {
+func (embedRule) InterruptsParagraph(in parser.Line) bool {
+	line := in.Text
 	_, _, ok := parseEmbed(line)
 	return ok
 }
-func (embedRule) Open(s *parser.BlockState, line string) bool {
+func (embedRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	name, params, ok := parseEmbed(line)
 	if !ok {
 		return false

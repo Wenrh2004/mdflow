@@ -94,10 +94,12 @@ Neither half is meaningful alone: a rule with no rendering parses text into a
 node nothing knows how to write. So they are declared side by side —
 
 ```go
+var strikeTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/strikethrough.strikethrough")
+
 var Strikethrough = extension.Capability{
     Name:   "strikethrough",
-    Syntax: func(p *parser.RuleSet) { p.AddInlineRule(parser.Strikethrough()) },
-    Output: func(r renderer.Renderer) { /* register <del> for the tag */ },
+    Syntax: func(p *parser.RuleSet) { p.AddInlineRule(strikeRule{}) },
+    Output: func(r renderer.Renderer) { extension.Paired(r, strikeTag, "<del>", "</del>") },
 }
 ```
 
@@ -536,26 +538,27 @@ resolver. `Workers(n)` distributes that phase — and it is off by default,
 because it only pays under conditions worth stating precisely.
 
 ```go
-md := mdflow.New().Workers(0) // 0 = GOMAXPROCS
+md := mdflow.New().Workers(0) // 0 = min(GOMAXPROCS, 4)
 html := md.HTML(bigDoc)       // byte-identical to the sequential path
 ```
 
 | Document | Speedup | Memory |
 | --- | ---: | ---: |
-| 14 KiB | **1.15×** | +5% |
-| 43 KiB | **1.04×** | +7% |
-| 175 KiB | **1.45×** | +22% |
-| 511 KiB | **1.89×** | +17% |
-| 2 MiB | **1.98×** | +23% |
-| 175 KiB, all cores busy | **1.68×** | +18% |
+| 128 KiB | 1.02× | +200% |
+| 512 KiB | 1.11× | +196% |
+| 2 MiB | 1.07× | +293% |
+| 128 KiB, all cores busy | **0.82×** (slower) | +204% |
 
-Apple M4 Pro, 14 cores, dense mixed corpus — one document shape scaled by
-section count, so only size varies. Ratios rather than absolute times, because
-absolutes say more about the machine that ran them than about the library.
+4-vCPU Xeon, dense mixed corpus — one document shape scaled by section count, so
+only size varies. Ratios rather than absolute times, because absolutes say more
+about the machine that ran them than about the library.
 
-Worker scaling at 511 KiB: 1.47× at 2, 1.72× at 4, 1.87× at 8, 2.02× at 14 —
-Amdahl's ceiling, since only the inline phase distributes. Past 4 workers you
-are buying very little.
+These numbers used to read 1.45×–1.98× (Apple M4 Pro, 14 cores). What changed is
+the sequential path: the inline scanner got roughly twice as fast, so the one
+phase that distributes is now a much smaller share of the work — Amdahl in the
+other direction. Worker scaling also peaks early and then regresses (on the M4,
+a 512 KiB document took 9.0 ms on two workers and 11.9 ms on fourteen), which is
+why `Workers(0)` caps itself at four rather than taking every core.
 
 **Granularity is the whole game.** The obvious design — one goroutine per block,
 the classic actor fan-out — is *an order of magnitude slower* than staying on one
@@ -567,7 +570,7 @@ blocks.
 
 **What it costs.** Fan-out must hold the whole document's block events at once,
 where the sequential path streams them and keeps only the top of the container
-stack. That is the +5–23% memory above, and it is why this is opt-in. It also
+stack. That is the memory column above, and it is why this is opt-in. It also
 cannot be combined with a middleware chain (a `Middleware` may carry state across
 the whole stream), and inputs under 16 KiB fall back to sequential.
 
@@ -578,9 +581,11 @@ the whole stream), and inputs under 16 KiB fall back to sequential.
 > remembering before concluding that an architecture does not pay.
 
 `TestParallelCrossover` asserts the fan-out still gives ≥1.5× on a document four
-times the threshold. If a future optimisation shrinks the inline share of the
-work, that test fails, and the honest response is to delete `Workers` rather than
-keep an option that does nothing.
+times the threshold, and today it would not. It is opt-in
+(`MDFLOW_TIMING_TESTS=1` on a machine with at least eight cores) because a
+wall-clock ratio on a shared CI runner is noise — but the question it asks is
+live: unless a many-core measurement still shows a clear win, the honest
+response is to delete `Workers` rather than keep an option that does little.
 
 ---
 

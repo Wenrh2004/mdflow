@@ -104,9 +104,11 @@
 // Block structure is inherently sequential. Once that phase is complete and
 // reference definitions are sealed, inline parsing uses one immutable resolver
 // and can distribute across closed leaves. [Parser.Workers] fans it across
-// cores — 1.45x at 175 KiB, 2.0x at 2 MiB, for +5-23% memory. It is opt-in, and
-// falls back to sequential below 16 KiB or when a middleware chain is installed.
-// See [Parser.Workers] for the measured trade-off.
+// cores. Since the inline scanner got faster that phase is a small share of the
+// work, so the gain is modest (about 1.1x on large documents) and it can lose
+// on a loaded machine; measure before enabling it. It is opt-in, and falls back
+// to sequential below 16 KiB or when a middleware chain is installed. See
+// [Parser.Workers] for the measured trade-off.
 //
 // # Supported syntax
 //

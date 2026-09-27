@@ -77,7 +77,8 @@ func (testInlineRule) Match(s *parser.InlineState) bool {
 type testLeafRule struct{}
 
 func (testLeafRule) Name() string { return "test_leaf" }
-func (testLeafRule) Open(s *parser.BlockState, line string) bool {
+func (testLeafRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	rest, ok := strings.CutPrefix(line, "::md ")
 	if !ok {
 		return false
@@ -91,7 +92,8 @@ func (testLeafRule) Open(s *parser.BlockState, line string) bool {
 type testLitRule struct{}
 
 func (testLitRule) Name() string { return "test_lit" }
-func (testLitRule) Open(s *parser.BlockState, line string) bool {
+func (testLitRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	rest, ok := strings.CutPrefix(line, "::lit ")
 	if !ok {
 		return false

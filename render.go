@@ -6,7 +6,8 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -62,7 +63,7 @@ func (p *Parser) writeDocumentEvent(w renderer.Writer, ev token.BlockEvent, inli
 // writeFinalEvent is the sealed-resolver spelling used by parallel workers.
 // No cursor can escape ParseInlineFinal, so workers share BlockState only for
 // immutable reference lookup.
-func (p *Parser) writeFinalEvent(w renderer.Writer, blocks *parser.BlockState, ev token.BlockEvent) {
+func (p *Parser) writeFinalEvent(w renderer.Writer, blocks drive.Block, ev token.BlockEvent) {
 	if ev.Type == token.LeafBlock {
 		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, blocks.ParseInlineFinal(ev.Leaf))
 	} else {
@@ -79,7 +80,7 @@ func (p *Parser) renderDirect(w renderer.Writer, src string) {
 		p.writeDocumentEvent(w, ev, inlines)
 		return true
 	}
-	parser.EachLine(src, func(line string) bool {
+	drive.EachLine(src, func(line string) bool {
 		return driver.FeedLine(line, render)
 	})
 	driver.Close(render)

@@ -4,6 +4,8 @@ import (
 	"iter"
 	"sync"
 
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/extension"
 	"github.com/Wenrh2004/mdflow/iterx"
 	"github.com/Wenrh2004/mdflow/parser"
@@ -59,7 +61,7 @@ type Parser struct {
 	pipeline []Middleware
 	chain    Middleware // pre-composed pipeline, nil when empty
 	workers  int        // >1 enables the fan-out path; see Workers
-	pool     sync.Pool  // *parser.BlockState, keyed to cfg
+	pool     sync.Pool  // drive.Block, keyed to cfg
 }
 
 // New builds the complete CommonMark 0.31.2 facade: package parser supplies the
@@ -111,7 +113,7 @@ func newParser(cfg *Spec, pipeline []Middleware, workers int) *Parser {
 		}
 		p.chain = iterx.Compose(stages...)
 	}
-	p.pool.New = func() any { return parser.NewBlockState(cfg.Rules) }
+	p.pool.New = func() any { return drive.NewBlock(cfg.Rules) }
 	return p
 }
 
@@ -200,13 +202,13 @@ func (p *Parser) Spec() *Spec { return p.cfg.clone() }
 
 // ---- pooling ----
 
-func (p *Parser) borrow() *parser.BlockState {
-	bp := p.pool.Get().(*parser.BlockState)
-	bp.Reset(p.cfg.Rules)
+func (p *Parser) borrow() drive.Block {
+	bp := p.pool.Get().(drive.Block)
+	bp.Reset()
 	return bp
 }
 
-func (p *Parser) release(bp *parser.BlockState) {
-	bp.Reset(p.cfg.Rules)
+func (p *Parser) release(bp drive.Block) {
+	bp.Reset()
 	p.pool.Put(bp)
 }

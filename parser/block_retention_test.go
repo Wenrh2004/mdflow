@@ -8,21 +8,21 @@ import (
 )
 
 func TestBlockStateDropsConsumedDocumentReferences(t *testing.T) {
-	state := NewBlockState(New())
+	state := newBlockState(New())
 	line := strings.Repeat("retained", 128)
 
-	state.FeedLine("- " + line)
-	state.CloseAll()
+	state.feedLine("- " + line)
+	state.closeAll()
 	assertBlockEventsCleared(t, "released list buffer", state.held[:cap(state.held)])
 	for i, retained := range state.leafStore.lines[:cap(state.leafStore.lines)] {
 		if retained != "" {
 			t.Fatalf("closed-leaf slot %d retained consumed input", i)
 		}
 	}
-	state.ReleaseEvents()
+	state.releaseEvents()
 	assertBlockEventsCleared(t, "released line event buffer", state.events[:cap(state.events)])
 
-	state.Reset(state.rules)
+	state.reset(state.rules)
 	assertBlockEventsCleared(t, "line event buffer", state.events[:cap(state.events)])
 	for i, retained := range state.leafStore.lines[:cap(state.leafStore.lines)] {
 		if retained != "" {
@@ -30,8 +30,8 @@ func TestBlockStateDropsConsumedDocumentReferences(t *testing.T) {
 		}
 	}
 
-	state.CollectAll("- " + line + "\n")
-	state.Reset(state.rules)
+	state.collectAll("- " + line + "\n")
+	state.reset(state.rules)
 	assertBlockEventsCleared(t, "parallel collection buffer", state.collected[:cap(state.collected)])
 
 	tag := token.NewTag("block_retention_accumulator")
@@ -40,8 +40,8 @@ func TestBlockStateDropsConsumedDocumentReferences(t *testing.T) {
 	AddFinalise(rules, tag, func(s *BlockState, _ []string, scratch string) {
 		s.EmitLeaf(token.Leaf{Node: token.CustomLeaf, Tag: tag, Content: scratch, Literal: true})
 	})
-	accumulator := NewBlockState(rules)
-	accumulator.FeedLine(":::" + line)
+	accumulator := newBlockState(rules)
+	accumulator.feedLine(":::" + line)
 	if accumulator.leafStore.scratch != nil || accumulator.leafStore.info != "" {
 		t.Fatalf("closed accumulator retained scratch: %+v", accumulator.leafStore)
 	}
@@ -53,22 +53,23 @@ func TestBlockStateDropsConsumedDocumentReferences(t *testing.T) {
 }
 
 func TestSetextHeadingDropsConsumedParagraphReferences(t *testing.T) {
-	state := NewBlockState(New())
+	state := newBlockState(New())
 	line := strings.Repeat("retained", 128)
 
-	state.FeedLine(line)
-	state.FeedLine("===")
+	state.feedLine(line)
+	state.feedLine("===")
 	assertLeafLinesCleared(t, "setext heading", state.leafStore.lines[:cap(state.leafStore.lines)])
 
-	state.FeedLine("[label]: /" + line)
-	state.FeedLine("---")
+	state.feedLine("[label]: /" + line)
+	state.feedLine("---")
 	assertLeafLinesCleared(t, "definition-only setext candidate", state.leafStore.lines[:cap(state.leafStore.lines)])
 }
 
 type retentionAccumulatorRule struct{ tag token.Tag }
 
 func (r retentionAccumulatorRule) Name() string { return "retention_accumulator" }
-func (r retentionAccumulatorRule) Open(s *BlockState, line string) bool {
+func (r retentionAccumulatorRule) Open(s *BlockState, in Line) bool {
+	line := in.Text
 	if !strings.HasPrefix(line, ":::") {
 		return false
 	}

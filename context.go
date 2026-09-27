@@ -7,7 +7,8 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -109,7 +110,7 @@ func (p *Parser) renderDirectContext(ctx context.Context, w renderer.Writer, src
 		n    int
 		cerr error
 	)
-	parser.EachLine(src, func(line string) bool {
+	drive.EachLine(src, func(line string) bool {
 		if n&(ctxCheckLines-1) == 0 {
 			if err := ctx.Err(); err != nil {
 				cerr = err
@@ -139,7 +140,7 @@ func (p *Parser) rawEventsContext(ctx context.Context, src string) iter.Seq[Even
 		}
 		ok := true
 		n := 0
-		parser.EachLine(src, func(line string) bool {
+		drive.EachLine(src, func(line string) bool {
 			if n&(ctxCheckLines-1) == 0 && ctx.Err() != nil {
 				ok = false
 				return false

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Wenrh2004/mdflow"
 	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/renderer/html"
 )
 
 func TestCommonMarkLazyParagraphContinuation(t *testing.T) {
@@ -116,6 +117,48 @@ func TestUnmatchedLegacyBlockRuleDoesNotDisableLazyContinuation(t *testing.T) {
 
 type probedTestLeafRule struct{ testLeafRule }
 
-func (probedTestLeafRule) InterruptsParagraph(line string) bool {
+func (probedTestLeafRule) InterruptsParagraph(in parser.Line) bool {
+	line := in.Text
 	return strings.HasPrefix(line, "::md ")
+}
+
+// columnRecordingRule records the Line every probe and Open call receives.
+type columnRecordingRule struct{ seen *[]parser.Line }
+
+func (columnRecordingRule) Name() string { return "column_recording" }
+func (r columnRecordingRule) Open(_ *parser.BlockState, in parser.Line) bool {
+	*r.seen = append(*r.seen, in)
+	return false
+}
+func (r columnRecordingRule) InterruptsParagraph(in parser.Line) bool {
+	*r.seen = append(*r.seen, in)
+	return false
+}
+
+// Tab stops are counted from the start of the source line. After `>` the tab
+// runs from column 1 to 4; the blockquote marker's optional space takes one of
+// those columns, so the remainder is the other two, materialised as spaces,
+// starting at column 2. Both Open and the lazy-continuation probe must report
+// that source column, not zero — the value that used to need a separate
+// ColumnParagraphInterruptor and a RemainderColumn side channel.
+func TestRulesSeeTheSourceColumn(t *testing.T) {
+	var seen []parser.Line
+	rules := parser.New()
+	rules.AddLeafRule(columnRecordingRule{&seen})
+	mdflow.NewWith(rules, html.NewRenderer()).HTML("> a\n>\tb\nc\n")
+
+	want := map[string]int{"a": 2, "  b": 2, "c": 0}
+	for _, l := range seen {
+		col, ok := want[l.Text]
+		if !ok {
+			continue
+		}
+		if l.Column != col {
+			t.Errorf("rule saw %q at column %d, want %d", l.Text, l.Column, col)
+		}
+		delete(want, l.Text)
+	}
+	if len(want) != 0 {
+		t.Errorf("rule never saw %v", want)
+	}
 }

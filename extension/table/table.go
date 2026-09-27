@@ -77,11 +77,15 @@ type tableRule struct{}
 
 func (tableRule) Name() string { return "table" }
 
-func (tableRule) Open(s *parser.BlockState, line string) bool {
+func (tableRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if s.AccumulatorTag() == tableTag {
 		return false // an open table's rows are claimed by continueTable
 	}
-	lines := s.OpenParagraphLines()
+	// The header is the paragraph's one line of content. Link reference
+	// definitions above it do not count: PromoteParagraph registers them with
+	// the document, as cmark-gfm does.
+	lines := s.OpenParagraphContent()
 	if len(lines) != 1 || !strings.ContainsRune(lines[0], '|') {
 		return false
 	}
@@ -100,7 +104,8 @@ func (tableRule) Open(s *parser.BlockState, line string) bool {
 // continueTable folds one more body row into the open table. It returns false
 // at the line that ends the table, having closed the leaf first so the rule
 // loop then sees a clean slate.
-func continueTable(s *parser.BlockState, line string) bool {
+func continueTable(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if s.AccumulatorTag() != tableTag {
 		return false
 	}

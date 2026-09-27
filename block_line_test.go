@@ -13,7 +13,8 @@ type stripSectionMarkerRule struct{}
 
 func (stripSectionMarkerRule) Name() string { return "strip_section_marker" }
 
-func (stripSectionMarkerRule) Open(_ *parser.BlockState, line string) (string, bool) {
+func (stripSectionMarkerRule) Open(_ *parser.BlockState, in parser.Line) (string, bool) {
+	line := in.Text
 	if strings.HasPrefix(line, "§") {
 		return strings.TrimPrefix(line, "§"), true
 	}

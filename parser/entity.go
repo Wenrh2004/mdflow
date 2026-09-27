@@ -3,6 +3,8 @@ package parser
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Wenrh2004/mdflow/internal/ascii"
 )
 
 //go:generate go run ../internal/generate/entities -source ../internal/generate/entities/entities.json -out entities_gen.go
@@ -93,7 +95,7 @@ func unescapeSource(src string) string {
 
 func scanNamedCharacterReference(src string) (value string, n int, ok bool) {
 	i := 1
-	for i < len(src) && isASCIIAlphanumeric(src[i]) {
+	for i < len(src) && ascii.IsAlnum(src[i]) {
 		i++
 	}
 	if i == 1 || i >= len(src) || src[i] != ';' {
@@ -117,10 +119,6 @@ func entityDigit(c byte, base uint32) (uint32, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func isASCIIAlphanumeric(c byte) bool {
-	return '0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z'
 }
 
 // lookupHTMLEntity performs a zero-allocation binary search over the generated,

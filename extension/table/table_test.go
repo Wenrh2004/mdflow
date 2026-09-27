@@ -133,3 +133,23 @@ func TestAutocompletedCellsAreBounded(t *testing.T) {
 		t.Fatal("rows past the padding budget must end the table and stay paragraph text")
 	}
 }
+
+// A reference definition leading the paragraph that becomes a table header is
+// registered with the document rather than swallowed into the table, and the
+// line below it is still recognised as the header (cmark-gfm and goldmark agree).
+func TestPromotedHeaderRegistersLeadingDefinitions(t *testing.T) {
+	src := "[a]: /u\n| x | y |\n|---|---|\n| 1 | 2 |\n\n[a]\n"
+	want := "<table>\n<thead>\n<tr>\n<th>x</th>\n<th>y</th>\n</tr>\n</thead>\n" +
+		"<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n</table>\n" +
+		"<p><a href=\"/u\">a</a></p>\n"
+	if got := newParser().HTML(src); got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+	// Streaming must agree at every split point.
+	for i := 0; i <= len(src); i++ {
+		s := newParser().Stream()
+		if got := s.Feed(src[:i]) + s.Feed(src[i:]) + s.Finish(); got != want {
+			t.Fatalf("split at %d: got %q", i, got)
+		}
+	}
+}

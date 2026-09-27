@@ -3,7 +3,8 @@ package mdflow
 import (
 	"iter"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/token"
 )
 
@@ -32,7 +33,7 @@ func (p *Parser) rawEvents(src string) iter.Seq[Event] {
 			return p.emitDocumentEvent(ev, inlines, yield)
 		}
 		ok := true
-		parser.EachLine(src, func(line string) bool {
+		drive.EachLine(src, func(line string) bool {
 			ok = driver.FeedLine(line, emit)
 			return ok
 		})

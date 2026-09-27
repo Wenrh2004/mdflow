@@ -4,7 +4,8 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/token"
 )
 
@@ -28,7 +29,7 @@ func (p *Parser) Blocks(src string) iter.Seq[token.BlockEvent] {
 			return true
 		}
 		ok := true
-		parser.EachLine(src, func(line string) bool {
+		drive.EachLine(src, func(line string) bool {
 			ok = emit(bp.FeedLine(line))
 			return ok
 		})

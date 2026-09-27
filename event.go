@@ -50,8 +50,13 @@ type Event struct {
 	Type EventType
 	Node token.Node // for EnterEvent/LeaveEvent: which node
 
-	Text    string    // Text/Code content
-	Content string    // raw source on a non-literal leaf Enter
+	Text string // Text/Code content
+	// Content is the leaf's raw source on a non-literal leaf Enter. It is a
+	// record of what was parsed, not what will render: the inline events that
+	// follow are authoritative, and a middleware that rewrites them leaves
+	// Content describing the original. Renderers must not read it for
+	// non-literal leaves; a literal leaf's body arrives as its TextEvent.
+	Content string
 	Dest    string    // Link / Image target
 	Title   string    // link/image title
 	Tag     token.Tag // Custom discriminator

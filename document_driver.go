@@ -3,7 +3,8 @@ package mdflow
 import (
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/token"
 )
 
@@ -21,11 +22,11 @@ type documentEmitter func(token.BlockEvent, []token.Inline) bool
 // released immediately. Each queued event is started once, cleared when
 // consumed, and moved only by amortised compaction.
 type documentDriver struct {
-	blocks *parser.BlockState
+	blocks drive.Block
 
 	suffix     []token.BlockEvent
 	suffixHead int
-	cursor     *parser.InlineCursor
+	cursor     drive.Cursor
 	closed     bool
 	released   bool
 
@@ -38,7 +39,7 @@ type documentDriver struct {
 	scratch []token.Inline // reused token buffer; see start
 }
 
-func newDocumentDriver(blocks *parser.BlockState) *documentDriver {
+func newDocumentDriver(blocks drive.Block) *documentDriver {
 	return &documentDriver{blocks: blocks}
 }
 
@@ -51,7 +52,7 @@ func newDocumentDriver(blocks *parser.BlockState) *documentDriver {
 // the spot instead of holding every later block until end of input — which
 // keeps Render streaming and bounded for exactly the text LLMs produce. Output
 // is unchanged: with no definitions, Close would have sealed the same way.
-func newBatchDriver(blocks *parser.BlockState, src string) documentDriver {
+func newBatchDriver(blocks drive.Block, src string) documentDriver {
 	if !strings.Contains(src, "]:") {
 		blocks.SealReferences()
 	}
@@ -216,7 +217,7 @@ func (d *documentDriver) drain(emit documentEmitter) bool {
 		event := d.suffix[d.suffixHead]
 		var tokens []token.Inline
 		if d.cursor == nil {
-			var cursor *parser.InlineCursor
+			var cursor drive.Cursor
 			tokens, cursor = d.start(event)
 			if cursor != nil {
 				d.cursor = cursor
@@ -243,7 +244,7 @@ func (d *documentDriver) drain(emit documentEmitter) bool {
 	return true
 }
 
-func (d *documentDriver) start(event token.BlockEvent) ([]token.Inline, *parser.InlineCursor) {
+func (d *documentDriver) start(event token.BlockEvent) ([]token.Inline, drive.Cursor) {
 	if event.Type != token.LeafBlock {
 		return nil, nil
 	}

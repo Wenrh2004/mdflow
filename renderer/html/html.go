@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wenrh2004/mdflow/internal/ascii"
+
 	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -482,13 +484,13 @@ func linkSchemeAllowed(dest string) bool {
 			if !isSchemeStart(c) {
 				return true // not a scheme start — relative reference
 			}
-			buf[n] = asciiLower(c)
+			buf[n] = ascii.Lower(c)
 			n++
 		case isSchemeByte(c):
 			if n >= len(buf) {
 				return false // implausibly long scheme, not on any allowlist
 			}
-			buf[n] = asciiLower(c)
+			buf[n] = ascii.Lower(c)
 			n++
 		default:
 			return true // a non-scheme byte before ':' — relative reference
@@ -501,13 +503,6 @@ func isSchemeStart(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <
 
 func isSchemeByte(c byte) bool {
 	return isSchemeStart(c) || '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.'
-}
-
-func asciiLower(c byte) byte {
-	if 'A' <= c && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-	return c
 }
 
 func isURLSafeASCII(c byte) bool {

@@ -2,6 +2,15 @@
 
 Derived from [`../SPEC.md`](../SPEC.md). Each ticket is a standalone file; dependencies are declared in-file under **Blocking edges** and summarized here.
 
+## Status
+
+| Ticket | Landed in |
+| --- | --- |
+| T01, T02, T03, T04, T06, T07 | #1 |
+| T05, T12, T13, T15, T16 | #18 (hardening pass) |
+| T09, T10, T11, T14, T17 | #18 (with #12, the parser API shrink) |
+| T08 | deferred to #8 as an additive seam — see the Decision in its ticket |
+
 ## Dependency graph
 
 ```

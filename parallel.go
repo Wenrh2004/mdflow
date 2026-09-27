@@ -54,8 +54,8 @@ import (
 const parallelMinBytes = 16 << 10
 
 // Workers derives a Parser whose HTML and Render fan the inline phase out across
-// n goroutines. n <= 1 restores sequential behaviour; n <= 0 means
-// runtime.GOMAXPROCS(0).
+// n goroutines. n == 1 restores sequential behaviour; n <= 0 picks the default,
+// min(runtime.GOMAXPROCS(0), maxDefaultWorkers).
 //
 // Output is byte-identical to the sequential path: rendering a block event
 // depends only on that event, so partitioning the stream cannot change the
@@ -66,35 +66,34 @@ const parallelMinBytes = 16 << 10
 //   - a parser with a middleware chain installed, since a Middleware may carry
 //     state across the whole event stream.
 //
-// Measured on an Apple M4 Pro (14 cores), dense mixed corpus, one document
-// shape scaled by section count:
+// Measure before enabling it. Only the inline phase distributes, and since the
+// inline scanner got cheaper that phase is a smaller share of the work, so the
+// fan-out now buys little. `go test -bench 'SequentialVsParallel|WorkerScaling|
+// ParallelUnderLoad' ./bench/...` on a 4-vCPU Xeon, dense mixed corpus:
 //
-//	 14 KiB   1.15x    +5% memory
-//	 43 KiB   1.04x    +7%
-//	175 KiB   1.45x   +22%
-//	511 KiB   1.89x   +17%
-//	  2 MiB   1.98x   +23%
+//	128 KiB   1.02x   +200% memory
+//	512 KiB   1.11x   +196%
+//	  2 MiB   1.07x   +293%
+//	128 KiB with every core already busy   0.82x (slower)
 //
-// The win survives full core saturation: under RunParallel at 175 KiB it is
-// still 1.68x, because the smaller per-worker output buffers are friendlier to
-// the allocator than one document-sized one.
-//
-// The ceiling is Amdahl's — only the inline phase distributes — so returns
-// flatten a few workers in.
-//
-// These figures are lower than they once were, and so is the memory penalty:
-// both moved when Leaf and BlockEvent shrank, which sped the sequential path up
-// and made the fan-out's whole-document event buffer cheaper at the same time.
-//
-// This is off by default because it is not free: it holds the whole document's
+// It is off by default because it is not free: it holds the whole document's
 // block events at once where the sequential path streams them, it costs memory,
-// and it cannot be combined with a middleware chain.
+// it loses to the sequential path on a loaded machine, and it cannot be combined
+// with a middleware chain.
 func (p *Parser) Workers(n int) *Parser {
 	if n <= 0 {
-		n = runtime.GOMAXPROCS(0)
+		n = min(runtime.GOMAXPROCS(0), maxDefaultWorkers)
 	}
 	return newParser(p.cfg, p.pipeline, n)
 }
+
+// maxDefaultWorkers caps the default fan-out. Worker scaling peaks early and
+// then regresses as goroutines contend for the allocator: on a 14-core Apple
+// M4 Pro a 512 KiB document took 11.7 ms on one worker, 9.0 ms on two, 9.6 ms
+// on four and 11.9 ms on fourteen; on a 4-vCPU Xeon four workers were best.
+// Defaulting to every core would put a many-core server on the wrong side of
+// that curve.
+const maxDefaultWorkers = 4
 
 // parallelEligible reports whether this call can take the fan-out path.
 func (p *Parser) parallelEligible(src string) bool {

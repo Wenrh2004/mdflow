@@ -73,6 +73,22 @@ jobs:
       - name: published modules have no replace and one internal version
         run: scripts/check-modules.sh
 
+  # API compatibility against each module's latest release tag. Before v1 the
+  # report is informational; from v1 an incompatible change fails the job.
+  api-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags are the comparison base
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: gorelease report
+        run: |
+          scripts/api-report.sh | tee api-report.txt
+          { echo '```'; cat api-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   # The core module owns no extension dependency: it must parse a plain document
   # with no import of an extension submodule or the umbrella. The base
   # extension package (mdflow/extension, holding Extension/Capability/Set) lives
