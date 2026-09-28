@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wenrh2004/mdflow/internal/ascii"
+
 	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -42,6 +44,9 @@ type Renderer struct {
 	// data:, vbscript:, …). It is off by default so the profile stays
 	// byte-for-byte CommonMark; mdflow.WithSafeLinks turns it on.
 	SafeLinks bool
+	// URLPolicy, when set, vets every link and image destination after the
+	// SafeLinks scheme check. See [URLPolicy]; mdflow.WithURLPolicy sets it.
+	URLPolicy URLPolicy
 }
 
 // NewRenderer builds the default HTML renderer.
@@ -118,6 +123,7 @@ func (h *Renderer) Clone() renderer.Renderer {
 		customCont: slices.Clone(h.customCont),
 		XHTML:      h.XHTML,
 		SafeLinks:  h.SafeLinks,
+		URLPolicy:  h.URLPolicy,
 	}
 	maps.Copy(out.overrides, h.overrides)
 	return out
@@ -260,8 +266,8 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 				break
 			}
 			w.WriteString(`<a href="`)
-			if !h.SafeLinks || linkSchemeAllowed(t.Dest) {
-				writeEscapedURL(w, t.Dest)
+			if dest, ok := h.destination(LinkURL, t.Dest); ok {
+				writeEscapedURL(w, dest)
 			}
 			if t.Title != "" {
 				w.WriteString(`" title="`)
@@ -273,10 +279,17 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 				break // consumed by the open token
 			}
 			end := findClose(toks, i, token.Image)
-			w.WriteString(`<img src="`)
-			if !h.SafeLinks || linkSchemeAllowed(t.Dest) {
-				writeEscapedURL(w, t.Dest)
+			dest, ok := h.destination(ImageURL, t.Dest)
+			if !ok {
+				// A refused image must not become an <img> at all: even an
+				// empty src makes some browsers issue a request. Its alt text
+				// is what a reader would have seen had it failed to load.
+				writeEscaped(w, plainText(toks[i+1:end]))
+				i = end
+				break
 			}
+			w.WriteString(`<img src="`)
+			writeEscapedURL(w, dest)
 			w.WriteString(`" alt="`)
 			writeEscaped(w, plainText(toks[i+1:end]))
 			if t.Title != "" {
@@ -301,6 +314,18 @@ func (h *Renderer) RenderInlines(w renderer.Writer, toks []token.Inline) {
 			writeEscaped(w, t.Text)
 		}
 	}
+}
+
+// destination applies the configured URL checks to a decoded destination:
+// first the SafeLinks scheme allowlist, then the URLPolicy.
+func (h *Renderer) destination(kind URLKind, dest string) (string, bool) {
+	if h.SafeLinks && !linkSchemeAllowed(dest) {
+		return "", false
+	}
+	if h.URLPolicy != nil {
+		return h.URLPolicy(kind, dest)
+	}
+	return dest, true
 }
 
 // findClose returns the index of the close token matching the open token at i,
@@ -459,13 +484,13 @@ func linkSchemeAllowed(dest string) bool {
 			if !isSchemeStart(c) {
 				return true // not a scheme start — relative reference
 			}
-			buf[n] = asciiLower(c)
+			buf[n] = ascii.Lower(c)
 			n++
 		case isSchemeByte(c):
 			if n >= len(buf) {
 				return false // implausibly long scheme, not on any allowlist
 			}
-			buf[n] = asciiLower(c)
+			buf[n] = ascii.Lower(c)
 			n++
 		default:
 			return true // a non-scheme byte before ':' — relative reference
@@ -478,13 +503,6 @@ func isSchemeStart(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <
 
 func isSchemeByte(c byte) bool {
 	return isSchemeStart(c) || '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.'
-}
-
-func asciiLower(c byte) byte {
-	if 'A' <= c && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-	return c
 }
 
 func isURLSafeASCII(c byte) bool {

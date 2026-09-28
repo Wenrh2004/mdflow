@@ -70,7 +70,7 @@ func TestListStreamCommitsOnlyFinalLayout(t *testing.T) {
 					t.Fatalf("prefix %d %q: committed + provisional = %q, want %q", i+1, src[:i+1], got, want)
 				}
 			}
-			committed.WriteString(stream.Close())
+			committed.WriteString(stream.Finish())
 			if got, want := committed.String(), p.HTML(src); got != want {
 				t.Fatalf("closed stream = %q, want %q", got, want)
 			}

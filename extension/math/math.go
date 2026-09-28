@@ -22,8 +22,8 @@ import (
 // mathTag is inline (atomic: a single token, no closing counterpart);
 // mathBlockTag is a literal leaf block. Both are allocated by name.
 var (
-	mathTag      = token.NewAtomicTag("math")
-	mathBlockTag = token.NewTag("math_block")
+	mathTag      = token.NewAtomicTag("github.com/Wenrh2004/mdflow/extension/math.math")
+	mathBlockTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/math.math_block")
 )
 
 // Math is the math capability: inline `$x$` and `$$` blocks with their HTML.
@@ -77,10 +77,12 @@ func (mathRule) Match(s *parser.InlineState) bool {
 type mathBlockRule struct{}
 
 func (mathBlockRule) Name() string { return "math_block" }
-func (mathBlockRule) InterruptsParagraph(line string) bool {
+func (mathBlockRule) InterruptsParagraph(in parser.Line) bool {
+	line := in.Text
 	return isMathBlockFence(line)
 }
-func (mathBlockRule) Open(s *parser.BlockState, line string) bool {
+func (mathBlockRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if s.AccumulatorTag() == mathBlockTag {
 		return false // an open block's lines are claimed by continueMathBlock
 	}
@@ -93,7 +95,8 @@ func (mathBlockRule) Open(s *parser.BlockState, line string) bool {
 
 // continueMathBlock folds one more line into the open math block, closing it on
 // the terminating `$$`.
-func continueMathBlock(s *parser.BlockState, line string) bool {
+func continueMathBlock(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if s.AccumulatorTag() != mathBlockTag {
 		return false
 	}

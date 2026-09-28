@@ -6,7 +6,8 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/renderer"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -40,8 +41,6 @@ func (p *Parser) Render(w io.Writer, src string) error {
 // pay-for-what-you-use.
 func (p *Parser) renderTo(w renderer.Writer, src string) {
 	switch {
-	case p.parallelEligible(src):
-		p.renderParallel(w, src)
 	case p.chain == nil:
 		p.renderDirect(w, src)
 	default:
@@ -59,27 +58,16 @@ func (p *Parser) writeDocumentEvent(w renderer.Writer, ev token.BlockEvent, inli
 	}
 }
 
-// writeFinalEvent is the sealed-resolver spelling used by parallel workers.
-// No cursor can escape ParseInlineFinal, so workers share BlockState only for
-// immutable reference lookup.
-func (p *Parser) writeFinalEvent(w renderer.Writer, blocks *parser.BlockState, ev token.BlockEvent) {
-	if ev.Type == token.LeafBlock {
-		p.cfg.Renderer.RenderLeaf(w, ev.Leaf, blocks.ParseInlineFinal(ev.Leaf))
-	} else {
-		p.cfg.Renderer.RenderContainer(w, ev)
-	}
-}
-
 func (p *Parser) renderDirect(w renderer.Writer, src string) {
 	bp := p.borrow()
 	defer p.release(bp)
-	driver := documentDriver{blocks: bp}
+	driver := newBatchDriver(bp, src)
 	defer driver.Release()
 	render := func(ev token.BlockEvent, inlines []token.Inline) bool {
 		p.writeDocumentEvent(w, ev, inlines)
 		return true
 	}
-	parser.EachLine(src, func(line string) bool {
+	drive.EachLine(src, func(line string) bool {
 		return driver.FeedLine(line, render)
 	})
 	driver.Close(render)

@@ -8,13 +8,13 @@ import (
 
 func collectReferenceBlockEvents(t *testing.T, src string) (*BlockState, []token.BlockEvent) {
 	t.Helper()
-	state := NewBlockState(New())
+	state := newBlockState(New())
 	var events []token.BlockEvent
-	EachLine(src, func(line string) bool {
-		events = append(events, state.FeedLine(line)...)
+	eachLine(src, func(line string) bool {
+		events = append(events, state.feedLine(line)...)
 		return true
 	})
-	events = append(events, state.CloseAll()...)
+	events = append(events, state.closeAll()...)
 	return state, events
 }
 

@@ -19,7 +19,7 @@ import (
 
 // strikeTag is allocated by name, so the rule and the renderer agree without a
 // shared constant. It is paired (open/close), which is the default for NewTag.
-var strikeTag = token.NewTag("strikethrough")
+var strikeTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/strikethrough.strikethrough")
 
 // Strikethrough is the GFM strikethrough capability.
 var Strikethrough = extension.Capability{

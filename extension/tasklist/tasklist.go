@@ -14,7 +14,7 @@ import (
 	"github.com/Wenrh2004/mdflow/token"
 )
 
-var markerTag = token.NewAtomicTag("task_list_marker")
+var markerTag = token.NewAtomicTag("github.com/Wenrh2004/mdflow/extension/tasklist.task_list_marker")
 
 // TaskList is the GFM task-list capability.
 var TaskList = extension.Capability{

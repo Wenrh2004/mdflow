@@ -31,7 +31,7 @@ func TestStreamBlockedReportsPendingLabel(t *testing.T) {
 func TestStreamBlockedIsFalseAfterClose(t *testing.T) {
 	s := mdflow.New().Stream()
 	s.Feed("[foo]\n\n")
-	s.Close()
+	s.Finish()
 	if _, ok := s.Blocked(); ok {
 		t.Fatalf("closed stream reported blocked")
 	}
@@ -48,7 +48,7 @@ func TestStreamStrictWithholdsUndefinedReference(t *testing.T) {
 	if committed.Len() != 0 {
 		t.Fatalf("strict stream committed before Close: %q", committed.String())
 	}
-	committed.WriteString(s.Close())
+	committed.WriteString(s.Finish())
 
 	if got, want := committed.String(), p.HTML("[foo]\n\nbar\n\nbaz\n\n"); got != want {
 		t.Fatalf("strict final mismatch:\n got %q\nwant %q", got, want)
@@ -67,7 +67,7 @@ func TestStreamSealUndefinedReferencesCommitsEarly(t *testing.T) {
 	if !strings.Contains(committed.String(), "<p>[foo]</p>") {
 		t.Fatalf("seal policy did not commit [foo] early: %q", committed.String())
 	}
-	committed.WriteString(s.Close())
+	committed.WriteString(s.Finish())
 
 	if got, want := committed.String(), p.HTML("[foo]\n\nbar\n\n"); got != want {
 		t.Fatalf("seal final mismatch:\n got %q\nwant %q", got, want)
@@ -85,7 +85,7 @@ func TestStreamSealUndefinedDivergesFromStrictOnLateDefinition(t *testing.T) {
 	strict := p.Stream()
 	var strictOut strings.Builder
 	strictOut.WriteString(strict.Feed(doc))
-	strictOut.WriteString(strict.Close())
+	strictOut.WriteString(strict.Finish())
 	if got, want := strictOut.String(), p.HTML(doc); got != want {
 		t.Fatalf("strict stream must match whole-document render:\n got %q\nwant %q", got, want)
 	}
@@ -96,7 +96,7 @@ func TestStreamSealUndefinedDivergesFromStrictOnLateDefinition(t *testing.T) {
 	sealed := p.Stream(mdflow.SealUndefinedReferencesAfter(1))
 	var sealedOut strings.Builder
 	sealedOut.WriteString(sealed.Feed(doc))
-	sealedOut.WriteString(sealed.Close())
+	sealedOut.WriteString(sealed.Finish())
 	if !strings.Contains(sealedOut.String(), "<p>[foo]</p>") {
 		t.Fatalf("seal policy should have committed [foo] as literal text: %q", sealedOut.String())
 	}

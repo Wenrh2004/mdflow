@@ -17,7 +17,7 @@ import (
 // and its safe raw-HTML renderer registrations in any binary that imports this
 // package, including one that only ever calls NewWith with an explicit profile
 // and never touches these three functions.
-var defaultParser = sync.OnceValue(func() *Parser { return New() })
+var defaultParser = sync.OnceValue(func() *Parser { return NewBuilder().Build() })
 
 // HTML renders src with the default parser. Repeated calls reuse one parser, so
 // the rule tables and object pools are built exactly once per process.

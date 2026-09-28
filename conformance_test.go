@@ -72,7 +72,7 @@ func TestCommonMarkProtocolAcrossEventAndStreamSurfaces(t *testing.T) {
 				break
 			}
 		}
-		committed.WriteString(stream.Close())
+		committed.WriteString(stream.Finish())
 		if got := committed.String(); got != e.HTML {
 			t.Errorf("example %d byte stream\nmarkdown: %q\n got: %q\nwant: %q", e.Example, e.Markdown, got, e.HTML)
 		}

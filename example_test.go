@@ -2,7 +2,9 @@ package mdflow_test
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Wenrh2004/mdflow"
@@ -48,7 +50,7 @@ func ExampleParser_Stream() {
 	for _, chunk := range []string{"# Str", "eaming\n\nfir", "st para\n\nsecond"} {
 		out.WriteString(s.Feed(chunk))
 	}
-	out.WriteString(s.Close())
+	out.WriteString(s.Finish())
 
 	fmt.Print(out.String())
 	// Output:
@@ -102,7 +104,7 @@ func ExampleReduce() {
 func ExampleFilterMap() {
 	src := "See [go](https://go.dev) and [rust](https://rust-lang.org).\n"
 
-	links := iterx.Collect(iterx.FilterMap(mdflow.Events(src),
+	links := slices.Collect(iterx.FilterMap(mdflow.Events(src),
 		func(e mdflow.Event) (string, bool) {
 			if e.Type == mdflow.EnterEvent && e.Node == token.Link {
 				return e.Dest, true
@@ -131,12 +133,30 @@ func Example_capability() {
 	// <p>call <code class="hl">run()</code> now</p>
 }
 
-func ExampleParser_Workers() {
-	// Fan the inline phase across cores. Output is byte-identical to the
-	// sequential path; only large documents take the fan-out.
-	md := mdflow.New().Workers(4)
-	fmt.Print(md.HTML("# Small doc\n\nfalls back to sequential.\n"))
+// A Writer streams Markdown into any io.Writer the way gzip.Writer streams
+// compressed bytes: write chunks as they arrive, Close at the end.
+func ExampleParser_NewWriter() {
+	w := mdflow.New().NewWriter(os.Stdout)
+	for _, chunk := range []string{"# Str", "eamed\n\nHello, *wor", "ld*.\n"} {
+		if _, err := io.WriteString(w, chunk); err != nil {
+			panic(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		panic(err)
+	}
 	// Output:
-	// <h1>Small doc</h1>
-	// <p>falls back to sequential.</p>
+	// <h1>Streamed</h1>
+	// <p>Hello, <em>world</em>.</p>
+}
+
+// With joins construction options to a chain.
+func ExampleParser_With() {
+	md := mdflow.New().
+		With(mdflow.WithSafeLinks()).
+		Transform(mdflow.ShiftHeadings(1))
+	fmt.Print(md.HTML("# Title\n\n[x](javascript:alert(1))\n"))
+	// Output:
+	// <h2>Title</h2>
+	// <p><a href="">x</a></p>
 }

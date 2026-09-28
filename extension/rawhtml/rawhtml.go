@@ -34,3 +34,14 @@ func IsRawHTML(e mdflow.Event) bool {
 func WithUnsafeHTML() mdflow.Option {
 	return mdflow.WithOutput(internalrawhtml.UnsafeHTML)
 }
+
+// WithFilteredHTML emits recognised raw HTML verbatim except for GFM's
+// disallowed tags — script, style, iframe, textarea, title, xmp, noembed,
+// noframes and plaintext — whose opening '<' is escaped. It is the GFM
+// "tagfilter" and suits content that may carry ordinary HTML but should not be
+// able to run scripts or swallow the rest of the page. It is not a sanitizer:
+// event-handler attributes such as onerror= pass through, so untrusted input
+// still belongs on the default escaped output.
+func WithFilteredHTML() mdflow.Option {
+	return mdflow.WithOutput(internalrawhtml.FilteredHTML)
+}

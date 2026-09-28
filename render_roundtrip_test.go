@@ -50,7 +50,8 @@ func TestEventRoundTripPreservesRawLeafContentAndContainerMetadata(t *testing.T)
 type metadataLeafRule struct{}
 
 func (metadataLeafRule) Name() string { return "metadata_leaf" }
-func (metadataLeafRule) Open(s *parser.BlockState, line string) bool {
+func (metadataLeafRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	content, ok := strings.CutPrefix(line, "::meta ")
 	if !ok {
 		return false

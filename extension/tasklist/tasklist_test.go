@@ -189,7 +189,7 @@ func TestTaskListStreamMatchesBatchAtEveryByteBoundary(t *testing.T) {
 		for i := 0; i < len(src); i += split {
 			got.WriteString(stream.Feed(src[i:min(i+split, len(src))]))
 		}
-		got.WriteString(stream.Close())
+		got.WriteString(stream.Finish())
 		if got.String() != want {
 			t.Fatalf("chunk=%d:\n got: %q\nwant: %q", split, got.String(), want)
 		}

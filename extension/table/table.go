@@ -26,11 +26,11 @@ import (
 // TagTable doubles as the accumulating leaf's tag and the outer container's tag:
 // finalisers are keyed by the leaf's tag, so closing the leaf runs finaliseTable.
 var (
-	tableTag     = token.NewTag("table")
-	tableHeadTag = token.NewTag("table_head")
-	tableBodyTag = token.NewTag("table_body")
-	tableRowTag  = token.NewTag("table_row")
-	tableCellTag = token.NewTag("table_cell")
+	tableTag     = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table")
+	tableHeadTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_head")
+	tableBodyTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_body")
+	tableRowTag  = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_row")
+	tableCellTag = token.NewTag("github.com/Wenrh2004/mdflow/extension/table.table_cell")
 )
 
 // tableScratch is the per-table state a rule writes at open and a finaliser
@@ -77,11 +77,15 @@ type tableRule struct{}
 
 func (tableRule) Name() string { return "table" }
 
-func (tableRule) Open(s *parser.BlockState, line string) bool {
+func (tableRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if s.AccumulatorTag() == tableTag {
 		return false // an open table's rows are claimed by continueTable
 	}
-	lines := s.OpenParagraphLines()
+	// The header is the paragraph's one line of content. Link reference
+	// definitions above it do not count: PromoteParagraph registers them with
+	// the document, as cmark-gfm does.
+	lines := s.OpenParagraphContent()
 	if len(lines) != 1 || !strings.ContainsRune(lines[0], '|') {
 		return false
 	}
@@ -100,7 +104,8 @@ func (tableRule) Open(s *parser.BlockState, line string) bool {
 // continueTable folds one more body row into the open table. It returns false
 // at the line that ends the table, having closed the leaf first so the rule
 // loop then sees a clean slate.
-func continueTable(s *parser.BlockState, line string) bool {
+func continueTable(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if s.AccumulatorTag() != tableTag {
 		return false
 	}
@@ -126,15 +131,42 @@ func finaliseTable(s *parser.BlockState, lines []string, scratch tableScratch) {
 	s.Emit(token.BlockEvent{Type: token.OpenBlock, Container: token.CustomContainer, Tag: tableHeadTag})
 	emitRow(s, lines[0], aligns, true)
 	s.Emit(token.BlockEvent{Type: token.CloseBlock, Container: token.CustomContainer, Tag: tableHeadTag})
-	if len(lines) > 1 {
+	body := lines[1:]
+	var rest []string
+	budget := maxAutocompletedCells
+	for i, row := range body {
+		// A short row is padded to the header's width, so a wide header over
+		// many one-cell rows turns n bytes of input into n² cells of output.
+		// Bound the padding per table, as cmark-gfm does: the row that would
+		// exceed it ends the table and the remaining lines stay paragraph text.
+		if missing := len(aligns) - countCells(row); missing > 0 {
+			if budget -= missing; budget < 0 {
+				body, rest = body[:i], body[i:]
+				break
+			}
+		}
+	}
+	if len(body) > 0 {
 		s.Emit(token.BlockEvent{Type: token.OpenBlock, Container: token.CustomContainer, Tag: tableBodyTag})
-		for _, row := range lines[1:] {
+		for _, row := range body {
 			emitRow(s, row, aligns, false)
 		}
 		s.Emit(token.BlockEvent{Type: token.CloseBlock, Container: token.CustomContainer, Tag: tableBodyTag})
 	}
 	s.Emit(token.BlockEvent{Type: token.CloseBlock, Container: token.CustomContainer, Tag: tableTag})
+	if len(rest) > 0 {
+		for i, line := range rest {
+			rest[i] = strings.TrimLeft(line, " \t")
+		}
+		s.Emit(token.BlockEvent{Type: token.LeafBlock, Leaf: token.Leaf{
+			Node: token.Paragraph, Content: strings.Join(rest, "\n"),
+		}})
+	}
 }
+
+// maxAutocompletedCells bounds the empty cells one table may synthesise for
+// short rows. It matches cmark-gfm's limit and is far above any real table.
+const maxAutocompletedCells = 0x80000
 
 func emitRow(s *parser.BlockState, row string, aligns []token.Align, header bool) {
 	s.Emit(token.BlockEvent{Type: token.OpenBlock, Container: token.CustomContainer, Tag: tableRowTag})

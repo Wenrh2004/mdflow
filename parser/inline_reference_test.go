@@ -12,10 +12,10 @@ func referenceLeaf(src string) token.Leaf {
 }
 
 func TestInlineReferenceFormsUseDocumentDefinitions(t *testing.T) {
-	state := NewBlockState(New())
+	state := newBlockState(New())
 	state.references.define("foo", referenceDefinition{destination: "/url", title: "title"})
 	state.references.define("bar", referenceDefinition{destination: "/bar"})
-	state.SealReferences()
+	state.sealReferences()
 
 	tests := []struct {
 		name string
@@ -62,7 +62,7 @@ func TestInlineReferenceFormsUseDocumentDefinitions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := state.ParseInlineFinal(referenceLeaf(test.src))
+			got := state.parseInlineFinal(referenceLeaf(test.src))
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("tokens for %q\n got: %#v\nwant: %#v", test.src, got, test.want)
 			}
@@ -71,8 +71,8 @@ func TestInlineReferenceFormsUseDocumentDefinitions(t *testing.T) {
 }
 
 func TestInlineReferenceCursorResumesWithoutRescanningTheLeaf(t *testing.T) {
-	state := NewBlockState(New())
-	_, cursor := state.StartInline(referenceLeaf("[foo] and [bar]"))
+	state := newBlockState(New())
+	_, cursor := state.startInline(referenceLeaf("[foo] and [bar]"))
 	if cursor == nil {
 		t.Fatal("unknown shortcut reference did not pause")
 	}
@@ -108,12 +108,12 @@ func TestInlineReferenceCursorResumesWithoutRescanningTheLeaf(t *testing.T) {
 }
 
 func TestInlineReferenceCursorFallsBackOnlyWhenDefinitionsSeal(t *testing.T) {
-	state := NewBlockState(New())
-	_, cursor := state.StartInline(referenceLeaf("before [missing] after"))
+	state := newBlockState(New())
+	_, cursor := state.startInline(referenceLeaf("before [missing] after"))
 	if cursor == nil {
 		t.Fatal("unknown reference did not pause")
 	}
-	state.SealReferences()
+	state.sealReferences()
 	got, complete := cursor.Resume()
 	if !complete {
 		t.Fatal("sealed missing reference stayed blocked")
@@ -125,10 +125,10 @@ func TestInlineReferenceCursorFallsBackOnlyWhenDefinitionsSeal(t *testing.T) {
 }
 
 func TestUndefinedFullReferenceSuppressesShortcut(t *testing.T) {
-	state := NewBlockState(New())
+	state := newBlockState(New())
 	state.references.define("foo", referenceDefinition{destination: "/shortcut"})
-	state.SealReferences()
-	got := state.ParseInlineFinal(referenceLeaf("[foo][missing]"))
+	state.sealReferences()
+	got := state.parseInlineFinal(referenceLeaf("[foo][missing]"))
 	want := []token.Inline{{Node: token.Text, Text: "[foo][missing]"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("undefined full reference fell back to shortcut\n got: %#v\nwant: %#v", got, want)
@@ -136,14 +136,14 @@ func TestUndefinedFullReferenceSuppressesShortcut(t *testing.T) {
 }
 
 func TestInlineReferenceCursorCloneIsSpeculative(t *testing.T) {
-	live := NewBlockState(New())
-	_, cursor := live.StartInline(referenceLeaf("[foo]"))
+	live := newBlockState(New())
+	_, cursor := live.startInline(referenceLeaf("[foo]"))
 	if cursor == nil {
 		t.Fatal("unknown reference did not pause")
 	}
 
-	snapshot := live.Clone()
-	clone := cursor.CloneFor(snapshot)
+	snapshot := live.clone()
+	clone := cursor.cloneFor(snapshot)
 	snapshot.references.define("foo", referenceDefinition{destination: "/snapshot"})
 	got, complete := clone.Resume()
 	if !complete || len(got) == 0 || got[0].Dest != "/snapshot" {

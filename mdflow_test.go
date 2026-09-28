@@ -127,7 +127,7 @@ func TestStreamMatchesBatch(t *testing.T) {
 		for i := 0; i < len(src); i += chunk {
 			got.WriteString(s.Feed(src[i:min(i+chunk, len(src))]))
 		}
-		got.WriteString(s.Close())
+		got.WriteString(s.Finish())
 		if got.String() != want {
 			t.Errorf("chunk=%d\n got: %q\nwant: %q", chunk, got.String(), want)
 		}
@@ -143,7 +143,7 @@ func TestStreamProvisional(t *testing.T) {
 		t.Errorf("provisional view lost the open tail: %q", got)
 	}
 	// The probe must not disturb the real state.
-	final := s.Feed("te\n") + s.Close()
+	final := s.Feed("te\n") + s.Finish()
 	if want := "<blockquote>\n<p>a partial quote</p>\n</blockquote>\n"; final != want {
 		t.Errorf("got %q want %q", final, want)
 	}
@@ -152,10 +152,10 @@ func TestStreamProvisional(t *testing.T) {
 func TestStreamCloseIsIdempotent(t *testing.T) {
 	s := mdflow.New().Stream()
 	s.Feed("# hi")
-	if first := s.Close(); first == "" {
+	if first := s.Finish(); first == "" {
 		t.Fatal("first Close returned nothing")
 	}
-	if second := s.Close(); second != "" {
+	if second := s.Finish(); second != "" {
 		t.Errorf("second Close returned %q, want empty", second)
 	}
 }
@@ -294,7 +294,7 @@ func TestSeqCombinators(t *testing.T) {
 	src := "# a\n\n## b\n\n### c\n"
 	p := mdflow.New()
 
-	levels := iterx.Collect(iterx.FilterMap(p.Events(src), func(e mdflow.Event) (int, bool) {
+	levels := slices.Collect(iterx.FilterMap(p.Events(src), func(e mdflow.Event) (int, bool) {
 		if e.Type == mdflow.EnterEvent && e.Node == token.Heading {
 			return e.Level, true
 		}

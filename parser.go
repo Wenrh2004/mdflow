@@ -4,6 +4,8 @@ import (
 	"iter"
 	"sync"
 
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/extension"
 	"github.com/Wenrh2004/mdflow/iterx"
 	"github.com/Wenrh2004/mdflow/parser"
@@ -58,8 +60,7 @@ type Parser struct {
 	cfg      *Spec
 	pipeline []Middleware
 	chain    Middleware // pre-composed pipeline, nil when empty
-	workers  int        // >1 enables the fan-out path; see Workers
-	pool     sync.Pool  // *parser.BlockState, keyed to cfg
+	pool     sync.Pool  // drive.Block, keyed to cfg
 }
 
 // New builds the complete CommonMark 0.31.2 facade: package parser supplies the
@@ -81,7 +82,16 @@ type Parser struct {
 //
 //	import "github.com/Wenrh2004/mdflow/all"
 //	p := all.New() // CommonMark + bundled GFM and Memos extensions
-func New(opts ...Option) *Parser { return NewBuilder().With(opts...).Build() }
+//
+// A Parser is immutable, so New with no options returns one shared instance
+// rather than rebuilding the same rule set and renderer on every call — a
+// handler that calls mdflow.New() per request pays for it once per process.
+func New(opts ...Option) *Parser {
+	if len(opts) == 0 {
+		return defaultParser()
+	}
+	return NewBuilder().With(opts...).Build()
+}
 
 // NewWith builds a Parser from an explicit parser/renderer pair and only the
 // extensions named. parser.New intentionally omits raw HTML, so an explicit
@@ -90,8 +100,8 @@ func NewWith(p *parser.RuleSet, r renderer.Renderer, exts ...extension.Extension
 	return NewBuilder().Rules(p).Renderer(r).Only(exts...).Build()
 }
 
-func newParser(cfg *Spec, pipeline []Middleware, workers int) *Parser {
-	p := &Parser{cfg: cfg, pipeline: pipeline, workers: workers}
+func newParser(cfg *Spec, pipeline []Middleware) *Parser {
+	p := &Parser{cfg: cfg, pipeline: pipeline}
 	if len(pipeline) > 0 {
 		// iterx.Compose is generic over the element type, but Middleware is a
 		// named func type, so a []Middleware will not spread into its variadic
@@ -102,7 +112,7 @@ func newParser(cfg *Spec, pipeline []Middleware, workers int) *Parser {
 		}
 		p.chain = iterx.Compose(stages...)
 	}
-	p.pool.New = func() any { return parser.NewBlockState(cfg.Rules) }
+	p.pool.New = func() any { return drive.NewBlock(cfg.Rules) }
 	return p
 }
 
@@ -118,7 +128,30 @@ func newParser(cfg *Spec, pipeline []Middleware, workers int) *Parser {
 func (p *Parser) WithExtensions(exts ...extension.Extension) *Parser {
 	spec := p.cfg.clone()
 	spec.apply(exts...)
-	return newParser(spec, p.pipeline, p.workers)
+	return newParser(spec, p.pipeline)
+}
+
+// With derives a Parser with opts applied on top of the receiver's
+// configuration: its capabilities, renderer settings, middlewares and worker
+// count carry over, and the receiver is untouched. It is how a construction
+// option joins a chain:
+//
+//	md := mdflow.New().
+//		With(mdflow.WithSafeLinks(), mdflow.WithHTML5()).
+//		Transform(mdflow.ShiftHeadings(1))
+//
+// Options that add (WithExtensions, WithOutput, WithSafeLinks, WithURLPolicy,
+// WithHTML5) extend what the receiver already has. Options that replace
+// (WithRules, WithRenderer, WithOnly) start from what they supply instead, as
+// they would in [New]; capabilities already applied to the receiver cannot be
+// subtracted.
+func (p *Parser) With(opts ...Option) *Parser {
+	if len(opts) == 0 {
+		return p
+	}
+	b := &Builder{rules: p.cfg.Rules, rend: p.cfg.Renderer}
+	derived := b.With(opts...).Build()
+	return newParser(derived.cfg, p.pipeline)
 }
 
 // Transform derives a Parser with additional event middlewares appended.
@@ -129,7 +162,7 @@ func (p *Parser) Transform(ms ...Middleware) *Parser {
 	next := make([]Middleware, 0, len(p.pipeline)+len(ms))
 	next = append(next, p.pipeline...)
 	next = append(next, ms...)
-	return newParser(p.cfg, next, p.workers)
+	return newParser(p.cfg, next)
 }
 
 // Map derives a Parser that rewrites every event with f.
@@ -159,20 +192,22 @@ func (p *Parser) Tap(f func(Event)) *Parser {
 	})
 }
 
-// Spec exposes the underlying rule set and renderer, for callers that want to
-// register a rule in place. Mutating it affects every Parser derived from this
-// one; prefer WithExtensions for isolated changes.
-func (p *Parser) Spec() *Spec { return p.cfg }
+// Spec returns a deep copy of the parser's rule set and renderer. Changing the
+// copy never affects p — a Parser is immutable, which is what makes it safe to
+// share. To derive a parser with more syntax or output, use
+// [Parser.WithExtensions] or [Parser.With]; to start from the copy, pass its
+// fields to [NewWith].
+func (p *Parser) Spec() *Spec { return p.cfg.clone() }
 
 // ---- pooling ----
 
-func (p *Parser) borrow() *parser.BlockState {
-	bp := p.pool.Get().(*parser.BlockState)
-	bp.Reset(p.cfg.Rules)
+func (p *Parser) borrow() drive.Block {
+	bp := p.pool.Get().(drive.Block)
+	bp.Reset()
 	return bp
 }
 
-func (p *Parser) release(bp *parser.BlockState) {
-	bp.Reset(p.cfg.Rules)
+func (p *Parser) release(bp drive.Block) {
+	bp.Reset()
 	p.pool.Put(bp)
 }

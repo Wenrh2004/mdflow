@@ -47,6 +47,7 @@ func FuzzHTML(f *testing.F) {
 		if b := p.HTMLBytes([]byte(src)); b != got {
 			t.Errorf("HTMLBytes disagrees with HTML\n src: %q\n str: %q\nbytes: %q", src, got, b)
 		}
+		checkOutputBounded(t, src, got)
 	})
 }
 
@@ -75,7 +76,7 @@ func FuzzStreamMatchesBatch(f *testing.F) {
 		for i := 0; i < len(src); i += chunk {
 			got.WriteString(s.Feed(src[i:min(i+chunk, len(src))]))
 		}
-		got.WriteString(s.Close())
+		got.WriteString(s.Finish())
 		if got.String() != want {
 			t.Errorf("stream != batch\n src: %q chunk=%d\n got: %q\nwant: %q", src, chunk, got.String(), want)
 		}
@@ -104,4 +105,17 @@ func FuzzText(f *testing.F) {
 			t.Errorf("TextBytes disagrees with Text\n src: %q\n str: %q\nbytes: %q", src, out, bytes)
 		}
 	})
+}
+
+// checkOutputBounded asserts output stays linear in input. The factor covers
+// the densest legitimate markup (a lone '>' opens and closes a whole
+// <blockquote>); the constant covers the reference-expansion budget, which may
+// add up to its floor regardless of input size. A quadratic blowup — a
+// reference expanded thousands of times, a table padded cell by cell — breaks
+// this within a few kilobytes.
+func checkOutputBounded(t *testing.T, src, out string) {
+	t.Helper()
+	if limit := 64*len(src) + 256<<10; len(out) > limit {
+		t.Errorf("output %d bytes from %d bytes of input exceeds %d\n src: %q", len(out), len(src), limit, src)
+	}
 }

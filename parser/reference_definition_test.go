@@ -212,7 +212,8 @@ func TestReferenceResolverLifecycle(t *testing.T) {
 		t.Fatalf("sealed lookup = %#v, %v", definition, ok)
 	}
 
-	cloned := resolver.clone()
+	var cloned referenceResolver
+	resolver.cloneInto(&cloned)
 	if !cloned.sealed {
 		t.Fatal("clone lost the sealed state")
 	}
@@ -223,7 +224,7 @@ func TestReferenceResolverLifecycle(t *testing.T) {
 
 	cloned.reset()
 	if cloned.sealed || len(cloned.definitions) != 0 {
-		t.Fatalf("reset clone = %#v, want empty and unsealed", cloned)
+		t.Fatalf("reset clone = sealed %v, %d definitions; want empty and unsealed", cloned.sealed, len(cloned.definitions))
 	}
 	if !cloned.define("bar", referenceDefinition{destination: "/after-reset"}) {
 		t.Fatal("reset resolver rejected a new definition")

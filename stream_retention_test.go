@@ -8,10 +8,10 @@ import (
 func TestClosedStreamDropsDocumentState(t *testing.T) {
 	s := New().Stream()
 	s.Feed("- [label]\n\n[label]: /" + strings.Repeat("destination", 128))
-	if got := s.Close(); got == "" {
+	if got := s.Finish(); got == "" {
 		t.Fatal("Close returned no final output")
 	}
-	blocks := s.Blocks()
+	blocks := s.BlockCount()
 	if blocks == 0 {
 		t.Fatal("closed stream lost its final block count")
 	}
@@ -25,7 +25,7 @@ func TestClosedStreamDropsDocumentState(t *testing.T) {
 	if s.out.Len() != 0 || s.out.Cap() != 0 {
 		t.Fatalf("closed stream retained output scratch: len=%d cap=%d", s.out.Len(), s.out.Cap())
 	}
-	if got := s.Blocks(); got != blocks {
+	if got := s.BlockCount(); got != blocks {
 		t.Fatalf("Blocks after cleanup = %d, want %d", got, blocks)
 	}
 }
@@ -44,7 +44,7 @@ func TestOpenStreamDropsCommittedOutputScratch(t *testing.T) {
 		t.Fatalf("open stream retained committed output: len=%d cap=%d", s.out.Len(), s.out.Cap())
 	}
 
-	got := s.Feed("after\n") + s.Close()
+	got := s.Feed("after\n") + s.Finish()
 	if want := New().HTML("after\n"); got != want {
 		t.Fatalf("stream after scratch release = %q, want %q", got, want)
 	}

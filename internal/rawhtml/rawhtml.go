@@ -17,8 +17,8 @@ import (
 // The additional tags in block.go are parser-only accumulator states and never
 // escape into an event stream.
 var (
-	InlineTag = token.NewAtomicTag("raw_html")
-	BlockTag  = token.NewTag("raw_html_block")
+	InlineTag = token.NewAtomicTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html")
+	BlockTag  = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_block")
 )
 
 // RawHTML recognises CommonMark raw HTML and escapes it for safe HTML output.

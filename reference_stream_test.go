@@ -46,7 +46,7 @@ func TestStreamReferenceDefinitionUnlocksEarliestPendingSuffix(t *testing.T) {
 	if got, want := s.Feed("[foo]: /url\n\n"), "<p><a href=\"/url\">foo</a></p>\n"; got != want {
 		t.Fatalf("matching definition did not unlock the earliest suffix\n got: %q\nwant: %q", got, want)
 	}
-	if got := s.Close(); got != "" {
+	if got := s.Finish(); got != "" {
 		t.Fatalf("definition-only tail rendered at close: %q", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestStreamReferenceProvisionalFinalisesOnlyItsClone(t *testing.T) {
 	if got := s.Provisional(); got != want {
 		t.Fatalf("repeated provisional mutated live state\n got: %q\nwant: %q", got, want)
 	}
-	if got := s.Close(); got != want {
+	if got := s.Finish(); got != want {
 		t.Fatalf("live close was polluted by provisional state\n got: %q\nwant: %q", got, want)
 	}
 }
@@ -87,7 +87,7 @@ func TestRepeatedProvisionalClonesInlineMemoState(t *testing.T) {
 	if got := s.Feed("[ref]: /url\n\n"); got != committed {
 		t.Fatalf("live cursor inherited provisional memo mutations\n got: %q\nwant: %q", got, committed)
 	}
-	if got := s.Close(); got != "" {
+	if got := s.Finish(); got != "" {
 		t.Fatalf("definition-only tail rendered at close: %q", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestRepeatedProvisionalClonesBacktickFrontier(t *testing.T) {
 	if got := s.Feed("[ref]: /url\n\n"); got != committed {
 		t.Fatalf("live cursor inherited provisional backtick frontier\n got: %q\nwant: %q", got, committed)
 	}
-	if got := s.Close(); got != "" {
+	if got := s.Finish(); got != "" {
 		t.Fatalf("definition-only tail rendered at close: %q", got)
 	}
 }
@@ -124,7 +124,7 @@ func TestStreamMissingReferenceStaysTentativeUntilEOF(t *testing.T) {
 	if got := s.Provisional(); got != want {
 		t.Fatalf("provisional missing-reference fallback\n got: %q\nwant: %q", got, want)
 	}
-	if got := s.Close(); got != want {
+	if got := s.Finish(); got != want {
 		t.Fatalf("EOF missing-reference fallback\n got: %q\nwant: %q", got, want)
 	}
 }
@@ -132,7 +132,8 @@ func TestStreamMissingReferenceStaysTentativeUntilEOF(t *testing.T) {
 type referenceSentinelRule struct{ opened *int }
 
 func (r referenceSentinelRule) Name() string { return "reference_test_sentinel" }
-func (r referenceSentinelRule) Open(s *parser.BlockState, line string) bool {
+func (r referenceSentinelRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	if line != "SENTINEL" {
 		return false
 	}
@@ -155,22 +156,18 @@ func TestReferenceEventsPullOnlyThroughTheNeededDefinition(t *testing.T) {
 	}
 }
 
-func TestParallelReferencesUseTheSealedDocumentResolver(t *testing.T) {
-	// Keep the definition after enough ordinary blocks to force both the
-	// document driver's suffix compaction and the parallel render path.
+func TestForwardReferenceAcrossManyBlocks(t *testing.T) {
+	// Keep the definition after enough ordinary blocks to force the document
+	// driver's suffix compaction while the first reference waits.
 	src := "[foo]\n\n" + strings.Repeat("ordinary paragraph\n\n", 900) + "[foo]: /url\n"
 	p := mdflow.New()
 	want := p.HTML(src)
-	got := p.Workers(4).HTML(src)
-	if got != want {
-		t.Fatalf("parallel reference output differs from sequential output\n got prefix: %q\nwant prefix: %q", prefix(got), prefix(want))
+	if !strings.HasPrefix(want, `<p><a href="/url">foo</a></p>`+"\n") {
+		t.Fatalf("forward reference was not resolved: %q", prefix(want))
 	}
-	if !strings.HasPrefix(got, `<p><a href="/url">foo</a></p>`+"\n") {
-		t.Fatalf("forward reference was not resolved: %q", prefix(got))
-	}
-	got, err := p.Workers(4).HTMLContext(context.Background(), src)
+	got, err := p.HTMLContext(context.Background(), src)
 	if err != nil || got != want {
-		t.Fatalf("parallel context reference output = %q, %v; want sequential output", prefix(got), err)
+		t.Fatalf("context reference output = %q, %v; want the plain output", prefix(got), err)
 	}
 }
 

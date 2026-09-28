@@ -31,7 +31,7 @@ func TestProvisionalCacheMatchesWholeDocumentAcrossGrowingList(t *testing.T) {
 		}
 	}
 
-	committed.WriteString(s.Close())
+	committed.WriteString(s.Finish())
 	if got, want := committed.String(), p.HTML(fed.String()); got != want {
 		t.Fatalf("final committed != whole-document render\n got %q\nwant %q", got, want)
 	}
@@ -53,7 +53,7 @@ func TestProvisionalCacheHandlesTightToLooseFlip(t *testing.T) {
 			t.Fatalf("step %d after %q: mismatch\n got %q\nwant %q", i, chunk, got, want)
 		}
 	}
-	committed.WriteString(s.Close())
+	committed.WriteString(s.Finish())
 	if got, want := committed.String(), p.HTML(fed.String()); got != want {
 		t.Fatalf("final mismatch\n got %q\nwant %q", got, want)
 	}
@@ -83,7 +83,7 @@ func TestProvisionalCacheHandlesSuffixDrainUnderOpenList(t *testing.T) {
 			t.Fatalf("step %d after %q: mismatch\n got %q\nwant %q", i, chunk, got, want)
 		}
 	}
-	committed.WriteString(s.Close())
+	committed.WriteString(s.Finish())
 	if got, want := committed.String(), p.HTML(fed.String()); got != want {
 		t.Fatalf("final mismatch\n got %q\nwant %q", got, want)
 	}

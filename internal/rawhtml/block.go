@@ -3,6 +3,8 @@ package rawhtml
 import (
 	"strings"
 
+	"github.com/Wenrh2004/mdflow/internal/ascii"
+
 	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -11,15 +13,15 @@ import (
 // the currently open block terminates. Finalisation projects every one of them
 // to the single public BlockTag above.
 var (
-	accScript      = token.NewTag("raw_html_acc_script")
-	accPre         = token.NewTag("raw_html_acc_pre")
-	accStyle       = token.NewTag("raw_html_acc_style")
-	accTextarea    = token.NewTag("raw_html_acc_textarea")
-	accComment     = token.NewTag("raw_html_acc_comment")
-	accInstruction = token.NewTag("raw_html_acc_instruction")
-	accDeclaration = token.NewTag("raw_html_acc_declaration")
-	accCDATA       = token.NewTag("raw_html_acc_cdata")
-	accBlank       = token.NewTag("raw_html_acc_blank")
+	accScript      = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_script")
+	accPre         = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_pre")
+	accStyle       = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_style")
+	accTextarea    = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_textarea")
+	accComment     = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_comment")
+	accInstruction = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_instruction")
+	accDeclaration = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_declaration")
+	accCDATA       = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_cdata")
+	accBlank       = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_acc_blank")
 )
 
 var accumulatorTags = [...]token.Tag{
@@ -38,18 +40,15 @@ func (blockRule) Name() string { return "raw_html_block" }
 
 // InterruptsParagraph is the pure probe used by the block parser's lazy
 // continuation decision. CommonMark block types 1-6 interrupt; type 7 does not.
-func (blockRule) InterruptsParagraph(line string) bool {
-	return (blockRule{}).InterruptsParagraphAt(line, 0)
-}
-
-// InterruptsParagraphAt preserves absolute tab stops after container prefixes.
-func (blockRule) InterruptsParagraphAt(line string, column int) bool {
-	start, ok := scanBlockStartAt(line, column)
+// The line's column keeps tab stops absolute after container prefixes.
+func (blockRule) InterruptsParagraph(in parser.Line) bool {
+	start, ok := scanBlockStartAt(in.Text, in.Column)
 	return ok && start.interrupt
 }
 
-func (blockRule) Open(s *parser.BlockState, line string) bool {
-	start, ok := scanBlockStartAt(line, s.RemainderColumn())
+func (blockRule) Open(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
+	start, ok := scanBlockStartAt(line, in.Column)
 	if !ok || !start.interrupt && len(s.OpenParagraphLines()) > 0 {
 		return false
 	}
@@ -79,7 +78,8 @@ func finaliseBlock(s *parser.BlockState, lines []string, _ struct{}) {
 	}})
 }
 
-func continueBlock(s *parser.BlockState, line string) bool {
+func continueBlock(s *parser.BlockState, in parser.Line) bool {
+	line := in.Text
 	tag := s.AccumulatorTag()
 	if !isAccumulatorTag(tag) {
 		return false
@@ -126,7 +126,7 @@ func scanBlockStartAt(line string, column int) (blockStart, bool) {
 		return blockStart{tag: accInstruction, interrupt: true}, true
 	case strings.HasPrefix(tail, "![CDATA["):
 		return blockStart{tag: accCDATA, interrupt: true}, true
-	case len(tail) >= 2 && tail[0] == '!' && isASCIIAlpha(tail[1]):
+	case len(tail) >= 2 && tail[0] == '!' && ascii.IsAlpha(tail[1]):
 		return blockStart{tag: accDeclaration, interrupt: true}, true
 	case startsType6(tail):
 		return blockStart{tag: accBlank, interrupt: true}, true
@@ -194,7 +194,7 @@ func blockEnds(tag token.Tag, line string) bool {
 func startsType6(tail string) bool {
 	tail = strings.TrimPrefix(tail, "/")
 	n := 0
-	for n < len(tail) && (isASCIIAlpha(tail[n]) || isASCIIDigit(tail[n])) {
+	for n < len(tail) && (ascii.IsAlpha(tail[n]) || ascii.IsDigit(tail[n])) {
 		n++
 	}
 	if n == 0 || !isBlockTag(tail[:n]) {
@@ -242,7 +242,7 @@ func completeType7TagLine(src string) bool {
 	// condition and must remain an inline tag inside a paragraph. Complete closing
 	// tags, including </script>, are still type 7.
 	if src[1] != '/' {
-		if !isASCIIAlpha(src[1]) {
+		if !ascii.IsAlpha(src[1]) {
 			return false
 		}
 		nameEnd := 2
@@ -282,7 +282,7 @@ func containsFoldASCII(haystack, needle string) bool {
 func compareFoldASCII(a, b string) int {
 	n := min(len(a), len(b))
 	for i := 0; i < n; i++ {
-		x, y := lowerASCII(a[i]), lowerASCII(b[i])
+		x, y := ascii.Lower(a[i]), ascii.Lower(b[i])
 		if x < y {
 			return -1
 		}
@@ -297,11 +297,4 @@ func compareFoldASCII(a, b string) int {
 		return 1
 	}
 	return 0
-}
-
-func lowerASCII(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-	return c
 }

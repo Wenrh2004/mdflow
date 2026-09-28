@@ -3,7 +3,8 @@ package mdflow
 import (
 	"iter"
 
-	"github.com/Wenrh2004/mdflow/parser"
+	"github.com/Wenrh2004/mdflow/internal/drive"
+
 	"github.com/Wenrh2004/mdflow/token"
 )
 
@@ -26,13 +27,13 @@ func (p *Parser) rawEvents(src string) iter.Seq[Event] {
 	return func(yield func(Event) bool) {
 		bp := p.borrow()
 		defer p.release(bp)
-		driver := documentDriver{blocks: bp}
+		driver := newBatchDriver(bp, src)
 		defer driver.Release()
 		emit := func(ev token.BlockEvent, inlines []token.Inline) bool {
 			return p.emitDocumentEvent(ev, inlines, yield)
 		}
 		ok := true
-		parser.EachLine(src, func(line string) bool {
+		drive.EachLine(src, func(line string) bool {
 			ok = driver.FeedLine(line, emit)
 			return ok
 		})

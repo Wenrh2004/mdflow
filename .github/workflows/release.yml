@@ -1,0 +1,48 @@
+name: Release
+
+# Runs when a root version tag is pushed (scripts/release.sh pushes the root tag
+# together with every nested module's tag). It proves the release is consumable
+# the way users consume it: from a fresh module, with no go.work and no replace.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: install every published module from a fresh consumer
+        env:
+          GOWORK: 'off'
+          GOPROXY: direct
+          GONOSUMDB: github.com/Wenrh2004/mdflow
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir consumer && cd consumer
+          go mod init example.com/consumer
+          cat > main.go <<'GO'
+          package main
+
+          import (
+          	"fmt"
+
+          	"github.com/Wenrh2004/mdflow"
+          	"github.com/Wenrh2004/mdflow/all"
+          	"github.com/Wenrh2004/mdflow/extension/gfm"
+          	"github.com/Wenrh2004/mdflow/extension/rawhtml"
+          )
+
+          func main() {
+          	fmt.Print(mdflow.New(mdflow.WithExtensions(gfm.GFM), rawhtml.WithFilteredHTML()).HTML("~~x~~\n"))
+          	fmt.Print(all.New().HTML("| a |\n|---|\n| 1 |\n"))
+          }
+          GO
+          go get "github.com/Wenrh2004/mdflow@$VERSION" "github.com/Wenrh2004/mdflow/all@$VERSION"
+          go mod tidy
+          go run .

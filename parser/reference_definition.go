@@ -20,6 +20,39 @@ type referenceDefinition struct {
 type referenceResolver struct {
 	definitions map[string]referenceDefinition
 	sealed      bool
+
+	// input counts the source bytes the block phase has consumed. It sizes the
+	// expansion budget and is written only by the block phase, before any
+	// parallel worker reads it.
+	input int64
+	// expanded is the destination and title bytes references have expanded to
+	// so far. Every [x] copies its definition into the output, so a long
+	// definition used many times turns kilobytes of input into gigabytes of
+	// output. cmark bounds the total the same way.
+	expanded int64
+}
+
+// minReferenceExpansion is the expansion budget a small document always has,
+// so an ordinary short page is never refused.
+const minReferenceExpansion = 100 << 10
+
+// resolve looks a normalised key up and charges its expansion against the
+// document budget: max(input so far, minReferenceExpansion). Past the budget a
+// defined reference is refused and renders as literal text, which is what keeps
+// output linear in input.
+func (r *referenceResolver) resolve(key string) (definition referenceDefinition, found, refused bool) {
+	definition, found = r.lookupNormalized(key)
+	if !found {
+		return referenceDefinition{}, false, false
+	}
+	cost := int64(len(definition.destination) + len(definition.title))
+	if cost == 0 {
+		return definition, true, false
+	}
+	if r.expanded += cost; r.expanded > max(r.input, minReferenceExpansion) {
+		return referenceDefinition{}, false, true
+	}
+	return definition, true, false
 }
 
 func (r *referenceResolver) define(label string, definition referenceDefinition) bool {
@@ -64,22 +97,24 @@ func (r *referenceResolver) reset() {
 	if r != nil {
 		r.definitions = nil
 		r.sealed = false
+		r.input = 0
+		r.expanded = 0
 	}
 }
 
-func (r *referenceResolver) clone() referenceResolver {
+// cloneInto copies r into dst, giving dst its own definitions map.
+func (r *referenceResolver) cloneInto(dst *referenceResolver) {
 	if r == nil {
-		return referenceResolver{}
+		return
 	}
-	cloned := referenceResolver{sealed: r.sealed}
+	dst.sealed, dst.input, dst.expanded = r.sealed, r.input, r.expanded
 	if len(r.definitions) == 0 {
-		return cloned
+		return
 	}
-	cloned.definitions = make(map[string]referenceDefinition, len(r.definitions))
+	dst.definitions = make(map[string]referenceDefinition, len(r.definitions))
 	for label, definition := range r.definitions {
-		cloned.definitions[label] = definition
+		dst.definitions[label] = definition
 	}
-	return cloned
 }
 
 // scanReferenceDefinition recognises one CommonMark link reference

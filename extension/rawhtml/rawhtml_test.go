@@ -316,7 +316,7 @@ func TestRawHTMLStreamMatchesBatch(t *testing.T) {
 			want := p.HTML(src)
 			for split := 0; split <= len(src); split++ {
 				s := p.Stream()
-				got := s.Feed(src[:split]) + s.Feed(src[split:]) + s.Close()
+				got := s.Feed(src[:split]) + s.Feed(src[split:]) + s.Finish()
 				if got != want {
 					t.Fatalf("split %d of %q\n got: %q\nwant: %q", split, src, got, want)
 				}
@@ -330,9 +330,27 @@ func TestRawHTMLStreamMatchesBatch(t *testing.T) {
 					t.Fatalf("prefix %d of %q\n got: %q\nwant: %q", i+1, src, got, wantPrefix)
 				}
 			}
-			if got := committed + s.Close(); got != want {
+			if got := committed + s.Finish(); got != want {
 				t.Fatalf("byte stream close for %q\n got: %q\nwant: %q", src, got, want)
 			}
+		}
+	}
+}
+
+func TestFilteredHTMLEscapesDisallowedTags(t *testing.T) {
+	md := mdflow.New(rawhtml.WithFilteredHTML())
+	cases := []struct{ in, want string }{
+		// GFM spec example 652 (tagfilter).
+		{"<strong> <title> <style> <em>\n\n<blockquote>\n  <xmp> is disallowed.  <XMP> is also disallowed.\n</blockquote>\n",
+			"<p><strong> &lt;title> &lt;style> <em></p>\n<blockquote>\n  &lt;xmp> is disallowed.  &lt;XMP> is also disallowed.\n</blockquote>\n"},
+		{"<script>alert(1)</script>\n", "&lt;script>alert(1)&lt;/script>\n"},
+		{"a <iframe src=x> b\n", "<p>a &lt;iframe src=x> b</p>\n"},
+		{"<scripts>\n", "<scripts>\n"},
+		{"<div>ok</div>\n", "<div>ok</div>\n"},
+	}
+	for _, c := range cases {
+		if got := md.HTML(c.in); got != c.want {
+			t.Errorf("HTML(%q)\n got: %q\nwant: %q", c.in, got, c.want)
 		}
 	}
 }

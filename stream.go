@@ -3,7 +3,6 @@ package mdflow
 import (
 	"strings"
 
-	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/token"
 )
 
@@ -19,7 +18,7 @@ import (
 // one per document. The Parser it came from stays shareable.
 //
 // A Stream needs no context: it is driven one Feed at a time by the caller, so
-// cancellation is simply the caller deciding to stop feeding and call Close (or
+// cancellation is simply the caller deciding to stop feeding and call Finish (or
 // abandon the Stream). The context-aware terminal operations on Parser exist
 // for the whole-document paths, where the loop is the library's rather than the
 // caller's.
@@ -118,8 +117,8 @@ type StreamOption func(*Stream)
 // SealUndefinedReferencesAfter trades strict CommonMark forward-reference
 // resolution for streaming liveness: once n block events have queued behind a
 // shortcut reference with no definition yet, the reference commits as literal
-// text instead of withholding all output until Close. n must be >= 1; without
-// this option a stream stays strict and withholds until Close.
+// text instead of withholding all output until Finish. n must be >= 1; without
+// this option a stream stays strict and withholds until Finish.
 //
 // This is a correctness-for-liveness trade, not merely an earlier commit. If a
 // definition arrives *after* the threshold has fired — a citation defined in a
@@ -138,7 +137,11 @@ func SealUndefinedReferencesAfter(n int) StreamOption {
 
 // Stream starts an incremental parse session.
 func (p *Parser) Stream(opts ...StreamOption) *Stream {
-	s := &Stream{p: p, driver: newDocumentDriver(parser.NewBlockState(p.cfg.Rules))}
+	// The block state comes from the parser's pool, as it does for a whole-
+	// document render: a chat server opening thousands of short streams
+	// otherwise builds a fresh state machine (and its buffers) for each one.
+	// Finish returns it; a stream abandoned without Finish is simply collected.
+	s := &Stream{p: p, driver: newDocumentDriver(p.borrow())}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -166,9 +169,15 @@ func (s *Stream) Feed(chunk string) string {
 			s.pending.WriteString(chunk)
 			break
 		}
-		s.pending.WriteString(chunk[:i])
-		line := s.pending.String()
-		s.pending.Reset()
+		// A line wholly inside this chunk is a substring of it — strings are
+		// immutable, so it can be fed without copying. Only a line split across
+		// chunks is assembled in pending.
+		line := chunk[:i]
+		if s.pending.Len() > 0 {
+			s.pending.WriteString(line)
+			line = s.pending.String()
+			s.pending.Reset()
+		}
 		s.driver.FeedLine(line, s.emit)
 
 		ending := chunk[i]
@@ -185,13 +194,6 @@ func (s *Stream) Feed(chunk string) string {
 	result := s.out.String()
 	s.out.Reset()
 	return result
-}
-
-// Write implements io.Writer, discarding the delta. Pair it with HTML or a Tap
-// middleware when the caller only wants the finished document.
-func (s *Stream) Write(b []byte) (int, error) {
-	s.Feed(string(b))
-	return len(b), nil
 }
 
 // Provisional renders only the not-yet-committed tail. It finalises a snapshot
@@ -284,9 +286,13 @@ func (s *Stream) renderProvisional(cacheLimit int) (string, uint64) {
 	return b.String(), driver.blocks.ReferenceFingerprint()
 }
 
-// Close flushes the trailing partial line and closes every open block,
-// returning the final HTML delta. It is idempotent.
-func (s *Stream) Close() string {
+// Finish flushes the trailing partial line and closes every open block,
+// returning the final HTML delta. It is idempotent: later calls return "".
+//
+// It is not named Close because it does not have io.Closer's shape — it
+// returns the last of the output rather than an error. [Parser.NewWriter] is
+// the io.WriteCloser spelling of a Stream.
+func (s *Stream) Finish() string {
 	if s.closed {
 		return ""
 	}
@@ -298,7 +304,7 @@ func (s *Stream) Close() string {
 	s.driver.Close(s.emit)
 	s.blocks = s.driver.blocks.Total()
 	s.driver.Release()
-	s.driver.blocks.Reset(s.p.cfg.Rules)
+	s.p.release(s.driver.blocks)
 	s.driver = nil
 	s.closed = true
 	s.afterCR = false
@@ -314,8 +320,9 @@ func (s *Stream) Close() string {
 
 // Blocked reports whether the committed stream is currently withholding output
 // behind an unresolved shortcut reference, and the normalised label it waits
-// on. It lets a streaming UI decide whether to keep waiting, Close early, or
-// show a spinner; it is false once the reference resolves or the stream closes.
+// on. It lets a streaming UI decide whether to keep waiting, Finish early, or
+// show a spinner; it is false once the reference resolves or the stream is
+// finished.
 func (s *Stream) Blocked() (label string, ok bool) {
 	if s.driver == nil {
 		return "", false
@@ -323,9 +330,9 @@ func (s *Stream) Blocked() (label string, ok bool) {
 	return s.driver.Blocked()
 }
 
-// Blocks reports how many block events have been emitted so far — a cheap
+// BlockCount reports how many block events have been emitted so far — a cheap
 // progress signal for a streaming UI.
-func (s *Stream) Blocks() int {
+func (s *Stream) BlockCount() int {
 	if s.driver == nil {
 		return s.blocks
 	}

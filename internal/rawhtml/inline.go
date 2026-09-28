@@ -3,6 +3,8 @@ package rawhtml
 import (
 	"strings"
 
+	"github.com/Wenrh2004/mdflow/internal/ascii"
+
 	"github.com/Wenrh2004/mdflow/parser"
 	"github.com/Wenrh2004/mdflow/token"
 )
@@ -11,7 +13,7 @@ import (
 // match stays one atomic token containing the exact source spelling.
 type inlineRule struct{}
 
-var inlineMemoTag = token.NewTag("raw_html_inline_memo")
+var inlineMemoTag = token.NewTag("github.com/Wenrh2004/mdflow/internal/rawhtml.raw_html_inline_memo")
 
 func (inlineRule) Name() string     { return "raw_html" }
 func (inlineRule) Triggers() []byte { return []byte{'<'} }
@@ -65,7 +67,7 @@ func scanInlineWithMemo(src string, start int, memo *inlineMemo) (int, bool) {
 		return scanUntil(src, start+2, "?>", instructionTerminator, memo)
 	case strings.HasPrefix(tail, "<![CDATA["):
 		return scanUntil(src, start+9, "]]>", cdataTerminator, memo)
-	case tail[1] == '!' && start+2 < len(src) && isASCIIAlpha(src[start+2]):
+	case tail[1] == '!' && start+2 < len(src) && ascii.IsAlpha(src[start+2]):
 		return scanUntil(src, start+3, ">", declarationTerminator, memo)
 	case tail[1] == '/':
 		return scanCloseTag(src, start)
@@ -99,7 +101,7 @@ func scanUntil(src string, from int, terminator string, kind inlineTerminator, m
 
 func scanOpenTag(src string, start int) (int, bool) {
 	i := start + 1
-	if i >= len(src) || !isASCIIAlpha(src[i]) {
+	if i >= len(src) || !ascii.IsAlpha(src[i]) {
 		return 0, false
 	}
 	i++
@@ -132,7 +134,7 @@ func scanOpenTag(src string, start int) (int, bool) {
 
 func scanCloseTag(src string, start int) (int, bool) {
 	i := start + 2
-	if i >= len(src) || !isASCIIAlpha(src[i]) {
+	if i >= len(src) || !ascii.IsAlpha(src[i]) {
 		return 0, false
 	}
 	i++
@@ -244,18 +246,12 @@ func isHTMLWhitespace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
-func isASCIIAlpha(c byte) bool {
-	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
-}
+func isTagNameRest(c byte) bool { return ascii.IsAlpha(c) || ascii.IsDigit(c) || c == '-' }
 
-func isASCIIDigit(c byte) bool { return c >= '0' && c <= '9' }
-
-func isTagNameRest(c byte) bool { return isASCIIAlpha(c) || isASCIIDigit(c) || c == '-' }
-
-func isAttributeNameStart(c byte) bool { return isASCIIAlpha(c) || c == '_' || c == ':' }
+func isAttributeNameStart(c byte) bool { return ascii.IsAlpha(c) || c == '_' || c == ':' }
 
 func isAttributeNameRest(c byte) bool {
-	return isAttributeNameStart(c) || isASCIIDigit(c) || c == '.' || c == '-'
+	return isAttributeNameStart(c) || ascii.IsDigit(c) || c == '.' || c == '-'
 }
 
 func isForbiddenUnquoted(c byte) bool {

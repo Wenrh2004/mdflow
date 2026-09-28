@@ -170,8 +170,8 @@ const (
 // BlockEvent is what the block parser emits. Seq is the document ordinal; it
 // doubles as the reordering key for any concurrent consumer, so that inline
 // work finishing out of order still reassembles into document order.
-// Fields are ordered widest-first, as in [Leaf]: a whole document's worth of
-// these lives in one slice on the fan-out path, so the padding is not free.
+// Fields are ordered widest-first, as in [Leaf]: one is copied per block, and
+// a held list keeps many alive at once, so the padding is not free.
 type BlockEvent struct {
 	Leaf      Leaf // valid when Type == LeafBlock
 	Seq       int

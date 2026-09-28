@@ -125,7 +125,7 @@ func BenchmarkStreaming(b *testing.B) {
 				for off := 0; off < len(src); off += chunkSize {
 					sink(s.Feed(src[off:min(off+chunkSize, len(src))]))
 				}
-				sink(s.Close())
+				sink(s.Finish())
 			}
 		})
 		// gomark has no incremental mode, so a streaming UI must re-parse. Only
